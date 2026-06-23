@@ -8,18 +8,18 @@
  */
 
 import type { DataConfidence, RecommendationLabel, RiskLevel, StreakSuitability } from "@/types";
+import type { MarketRecommendation } from "@/types/schema";
+import { edge, expectedValue, impliedProbability } from "./probability";
+
+export { impliedProbability, expectedValue };
 
 /** Core rule: a bet is only a candidate if true probability beats the book. */
-export function hasEdge(estimatedProbability: number, impliedProbability: number): boolean {
-  return estimatedProbability > impliedProbability;
-}
-
-export function impliedProbability(decimalOdds: number): number {
-  return 1 / decimalOdds;
+export function hasEdge(estimatedProbability: number, impliedProbabilityValue: number): boolean {
+  return estimatedProbability > impliedProbabilityValue;
 }
 
 export function edgeOf(estimatedProbability: number, decimalOdds: number): number {
-  return estimatedProbability - impliedProbability(decimalOdds);
+  return edge(estimatedProbability, impliedProbability(decimalOdds));
 }
 
 /**
@@ -128,4 +128,155 @@ export function trapWarningOf(args: {
 
 function clamp(v: number, lo: number, hi: number): number {
   return Math.min(hi, Math.max(lo, v));
+}
+
+// ---------------------------------------------------------------------------
+// Numeric risk / value / streak-suitability scores (0..100) + recommendation
+// engine, operating on the probability.ts estimators' raw numeric outputs
+// (0..1 probability/edge/dataConfidence) rather than the enum-based
+// RiskLevel/DataConfidence above. This is the transparent scoring layer the
+// normalized MarketEvaluation model (src/types/schema.ts) is shaped for.
+// ---------------------------------------------------------------------------
+
+/** A market never below 50% estimated probability is even worth tracking. */
+const MIN_PROBABILITY_FLOOR = 0.5;
+
+export interface RiskScoreInputs {
+  estimatedProbability: number; // 0..1
+  dataConfidence: number; // 0..1
+  /** How volatile the market itself is (corners > cards > goals, broadly). */
+  marketVolatility?: "low" | "medium" | "high";
+  isPlayerDependent?: boolean;
+  highLineupUncertainty?: boolean;
+}
+
+/**
+ * 0..100 risk score — higher means more risky. Built from the inverse of
+ * estimated probability and data confidence, plus flat penalties for
+ * known volatility/uncertainty sources (corners' small samples, player
+ * dependence, lineup uncertainty).
+ */
+export function riskScoreOf(i: RiskScoreInputs): number {
+  let score = (1 - i.estimatedProbability) * 60; // up to 60 pts from low probability
+  score += (1 - i.dataConfidence) * 25; // up to 25 pts from low confidence
+  if (i.marketVolatility === "high") score += 10;
+  else if (i.marketVolatility === "medium") score += 5;
+  if (i.isPlayerDependent) score += 8;
+  if (i.highLineupUncertainty) score += 12;
+  return Math.round(clamp(score, 0, 100));
+}
+
+export interface ValueScoreInputsV2 {
+  estimatedProbability: number; // 0..1
+  edge: number; // estimatedProbability - impliedProbability
+  expectedValue: number; // estimatedProbability * decimalOdds - 1
+  dataConfidence: number; // 0..1
+  riskScore: number; // 0..100
+}
+
+/**
+ * 0..100 value score — higher means more valuable. Rewards high probability,
+ * positive edge and expected value, and data confidence; docks points for
+ * higher risk. Distinct from `valueScoreOf` above (which works off the
+ * enum-based Recommendation shape) — this one is the numeric-engine version.
+ */
+export function computeValueScore(i: ValueScoreInputsV2): number {
+  const probabilityComponent = i.estimatedProbability * 35; // up to 35 pts
+  const edgeComponent = clamp(i.edge * 200, -25, 25); // ±25 pts
+  const evComponent = clamp(i.expectedValue * 60, -15, 15); // ±15 pts
+  const confidenceComponent = i.dataConfidence * 15; // up to 15 pts
+  const riskComponent = (100 - i.riskScore) * 0.1; // up to 10 pts
+  return Math.round(
+    clamp(probabilityComponent + edgeComponent + evComponent + confidenceComponent + riskComponent, 0, 100),
+  );
+}
+
+export interface StreakSuitabilityScoreInputs {
+  estimatedProbability: number; // 0..1
+  edge: number;
+  riskScore: number; // 0..100
+  dataConfidence: number; // 0..1
+  isPlayerDependent?: boolean;
+  /** Only relevant when isPlayerDependent — an excellent boost can rescue a player-dependent leg. */
+  boostValue?: number;
+}
+
+/**
+ * 0..100 streak-suitability score. High only when probability is high, edge
+ * is positive, variance/risk is low, data confidence is decent, and the
+ * market isn't heavily player-dependent unless its boosted value is
+ * excellent (boostValue >= 10 percentage points).
+ */
+export function streakSuitabilityScoreOf(i: StreakSuitabilityScoreInputs): number {
+  if (i.edge <= 0) return 0;
+
+  let score = clamp(i.estimatedProbability * 50, 0, 50);
+  score += clamp(i.edge * 200, 0, 25);
+  score += clamp((100 - i.riskScore) * 0.15, 0, 15);
+  score += clamp(i.dataConfidence * 10, 0, 10);
+
+  if (i.isPlayerDependent) {
+    const boostIsExcellent = (i.boostValue ?? 0) >= 0.1;
+    if (!boostIsExcellent) score *= 0.5;
+  }
+
+  return Math.round(clamp(score, 0, 100));
+}
+
+export interface RecommendationInputs {
+  estimatedProbability: number; // 0..1
+  edge: number;
+  dataConfidence: number; // 0..1
+  riskScore: number; // 0..100
+  /** Odds are priced too tight to justify the risk taken (e.g. short price, thin data). */
+  oddsTooLowForRisk?: boolean;
+  highLineupUncertainty?: boolean;
+  /** Player market where the player is not a likely starter. */
+  playerNotLikelyStarting?: boolean;
+  /** Set when an underlying input (form/tournament sample) is missing or too thin to trust fully. */
+  dataIncomplete?: boolean;
+}
+
+/**
+ * Final recommendation gate. Exact thresholds:
+ *  - Strong candidate: probability >= 0.82, edge >= 0.05, confidence >= 0.65, risk <= 35
+ *  - Consider:         probability >= 0.75, edge >= 0.03, confidence >= 0.55, risk <= 50
+ *  - Avoid:            edge <= 0, OR probability below floor, OR lineup uncertainty,
+ *                      OR player not likely starting, OR odds too low for the risk taken
+ *  - Watch:            everything else (incomplete data or edge too small to act on yet)
+ *
+ * This is what makes a market that "looks safe" (high probability, short
+ * odds) get marked Avoid when the bookmaker has already priced in that
+ * probability and left no real edge.
+ */
+export function recommendationOf(i: RecommendationInputs): MarketRecommendation {
+  if (
+    i.edge <= 0 ||
+    i.estimatedProbability < MIN_PROBABILITY_FLOOR ||
+    i.highLineupUncertainty ||
+    i.playerNotLikelyStarting ||
+    i.oddsTooLowForRisk
+  ) {
+    return "avoid";
+  }
+
+  if (
+    i.estimatedProbability >= 0.82 &&
+    i.edge >= 0.05 &&
+    i.dataConfidence >= 0.65 &&
+    i.riskScore <= 35
+  ) {
+    return "strong_candidate";
+  }
+
+  if (
+    i.estimatedProbability >= 0.75 &&
+    i.edge >= 0.03 &&
+    i.dataConfidence >= 0.55 &&
+    i.riskScore <= 50
+  ) {
+    return "consider";
+  }
+
+  return "watch";
 }
