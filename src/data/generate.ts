@@ -1,5 +1,5 @@
 /**
- * Deterministic mock-data generator for the World Cup SafeBet Dashboard.
+ * Deterministic mock-data generator for the World Cup Streak Value Finder.
  *
  * Everything here is seeded so the dataset is identical on every render (no
  * hydration mismatches) while still looking varied and realistic. It models
@@ -13,6 +13,7 @@
 import type {
   MarketKey,
   OddsSnapshot,
+  PlayerPropOdds,
   RecentMatchLine,
   TeamRecentMatchStats,
   TeamTournamentStats,
@@ -21,6 +22,7 @@ import type {
   WorldCupTeam,
 } from "@/types";
 import { MARKET_LIST } from "@/lib/markets";
+import { generatePlayerOdds } from "./players";
 import { GROUPS, TEAMS, getTeam } from "./teams";
 
 // --- Seeded RNG -----------------------------------------------------------
@@ -216,6 +218,7 @@ export interface GeneratedData {
   matches: WorldCupMatch[];
   tournamentStats: TeamTournamentStats[];
   odds: OddsSnapshot[];
+  playerOdds: PlayerPropOdds[];
 }
 
 export function generateData(): GeneratedData {
@@ -314,8 +317,9 @@ export function generateData(): GeneratedData {
 
   // --- Mock odds for every upcoming match ---------------------------------
   const odds = generateOdds(matches);
+  const playerOdds = generateAllPlayerOdds(matches);
 
-  return { matches, tournamentStats, odds };
+  return { matches, tournamentStats, odds, playerOdds };
 }
 
 /** Top-2 of each group by ranking + 8 best third-placed teams (projected). */
@@ -357,8 +361,9 @@ function generateOdds(matches: WorldCupMatch[]): OddsSnapshot[] {
     const bookmaker = BOOKMAKERS[hash(match.id) % BOOKMAKERS.length];
 
     for (const market of MARKET_LIST) {
+      if (market.requiresPlayerOdds) continue; // priced separately via player odds
       const selections: (string | undefined)[] =
-        market.key === "team_to_score_over_0_5"
+        market.key === "favorite_team_over_0_5"
           ? [home.id, away.id]
           : [undefined];
 
@@ -383,6 +388,17 @@ function generateOdds(matches: WorldCupMatch[]): OddsSnapshot[] {
   }
 
   return snapshots;
+}
+
+/** Generate mock player-prop odds for every scheduled match. */
+function generateAllPlayerOdds(matches: WorldCupMatch[]): PlayerPropOdds[] {
+  const out: PlayerPropOdds[] = [];
+  for (const match of matches) {
+    if (match.status !== "scheduled") continue;
+    const rand = rngFor("player-odds", match.id);
+    out.push(...generatePlayerOdds(match.id, match.homeTeam, match.awayTeam, rand));
+  }
+  return out;
 }
 
 /** A rough "fair" probability per market from team strengths (mock only). */
@@ -411,7 +427,10 @@ function fairProbability(
       return poissonOver(expCards, 0);
     case "over_1_5_cards":
       return poissonOver(expCards, 1);
-    case "team_to_score_over_0_5": {
+    case "both_teams_combined_over_0_5":
+      // Same outcome as Over 0.5 total goals — priced separately for bet-builder UIs.
+      return poissonOver(expGoals, 0);
+    case "favorite_team_over_0_5": {
       const team = selection === away.id ? away : home;
       const opp = selection === away.id ? home : away;
       const lambda = 0.8 + strengthOf(team) * 1.7 - strengthOf(opp) * 0.4;

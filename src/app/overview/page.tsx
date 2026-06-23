@@ -24,7 +24,7 @@ export default function OverviewPage() {
         <h1 className="text-2xl font-semibold text-white">World Cup Overview</h1>
         <p className="mt-1 text-sm text-zinc-400">
           Tournament-wide trends across {n} completed World Cup matches — useful
-          context for low-risk market research.
+          context for estimating market probabilities and data confidence.
         </p>
       </section>
 

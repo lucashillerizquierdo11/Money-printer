@@ -4,9 +4,9 @@ import { Nav } from "@/components/Nav";
 import { DisclaimerBanner } from "@/components/Disclaimer";
 
 export const metadata: Metadata = {
-  title: "World Cup SafeBet Dashboard",
+  title: "World Cup Streak Value Finder",
   description:
-    "FIFA World Cup-only betting research. Compare low-risk markets per match. Research, not financial advice.",
+    "FIFA World Cup-only betting research. Estimated probability, value and streak suitability per market. Research, not financial advice.",
 };
 
 export default function RootLayout({

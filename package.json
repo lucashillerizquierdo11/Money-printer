@@ -1,8 +1,8 @@
 {
-  "name": "world-cup-safebet-dashboard",
+  "name": "world-cup-streak-value-finder",
   "version": "0.1.0",
   "private": true,
-  "description": "World Cup SafeBet Dashboard MVP — FIFA World Cup-only betting research tool. Research, not financial advice.",
+  "description": "World Cup Streak Value Finder — FIFA World Cup-only value and streak-suitability betting research tool. Research, not financial advice.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

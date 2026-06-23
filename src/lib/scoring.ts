@@ -1,15 +1,16 @@
 /**
- * World Cup-specific scoring engine.
+ * World Cup-specific scoring engine — World Cup Streak Value Finder.
  *
  * Turns team form, tournament performance, group/knockout context, motivation
  * pressure, market hit rates, bookmaker implied probability and data confidence
- * into an "estimated safer pick" for each match.
+ * into ranked value candidates for a streak/compounding strategy.
  *
- * IMPORTANT FRAMING: this is research output, never a guarantee. Output is
- * always described as an "estimated safer pick". The tool exists to help avoid
- * bad bets — not to promise profit. See the disclaimer shown across the UI.
+ * IMPORTANT FRAMING: this is research output, never a guarantee. We use
+ * "estimated hit probability", "value score", "streak suitability", "risk
+ * rating", "market edge" and avoid/consider/strong-candidate language. A bet
+ * is only ever a candidate when estimatedProbability > impliedProbability.
  *
- * The seven factors combined here:
+ * The factors combined here:
  *   1. Recent team form (last 5 international matches)
  *   2. Current World Cup tournament performance
  *   3. Group-stage vs knockout-stage context
@@ -17,21 +18,24 @@
  *   5. Market hit rate
  *   6. Implied probability from bookmaker odds
  *   7. Data confidence
+ *
+ * Ranking criteria (per spec): estimated probability, positive value vs odds,
+ * low variance, data quality, suitability for compounding, and avoidance of
+ * "safe-looking" low-value traps.
  */
 
 import type {
-  DataConfidence,
   GroupStanding,
   Market,
   OddsSnapshot,
   Recommendation,
-  RiskLevel,
   TeamRecentMatchStats,
   TeamTournamentStats,
   WorldCupMatch,
   WorldCupTeam,
 } from "@/types";
-import { MARKETS, SAFE_FOCUS_MARKETS, clamp01, poissonOver } from "./markets";
+import { MARKETS, STREAK_FOCUS_MARKETS, clamp01, poissonOver } from "./markets";
+import { edgeOf, hasEdge, riskRatingOf, streakSuitabilityOf, trapWarningOf, valueScoreOf } from "./value";
 
 // ---------------------------------------------------------------------------
 // Motivation adjustment
@@ -232,9 +236,11 @@ export function estimateMarketProbability(
 
   switch (market.key) {
     case "over_0_5_goals":
-    case "over_1_5_goals": {
+    case "over_1_5_goals":
+    case "both_teams_combined_over_0_5": {
       const exp = expectedGoals(ctx);
-      p = poissonOver(exp, market.line!);
+      const line = market.key === "both_teams_combined_over_0_5" ? 0.5 : market.line!;
+      p = poissonOver(exp, line);
       rationale.push(`Expected total goals ≈ ${exp.toFixed(2)} (form + tournament).`);
       p *= adj.goals;
       if (market.key === "over_1_5_goals") p *= adj.over15GoalsExtra;
@@ -255,8 +261,7 @@ export function estimateMarketProbability(
       rationale.push(`Expected total cards ≈ ${exp.toFixed(1)}.`);
       break;
     }
-    case "team_to_score_over_0_5": {
-      // Score the favourite to score.
+    case "favorite_team_over_0_5": {
       const favoriteIsHome = adj.favoriteId === ctx.homeTeam.id;
       const fav = favoriteIsHome ? ctx.homeRecent : ctx.awayRecent;
       const lambda = Math.max(0.3, fav.avgGoalsFor);
@@ -280,7 +285,7 @@ export function estimateMarketProbability(
       break;
     }
     default:
-      return null; // 1X2 is context-only and not scored as a safe pick.
+      return null; // 1X2 and player props are priced/handled separately.
   }
 
   return { probability: clamp01(p), rationale };
@@ -297,7 +302,10 @@ function strengthGap(ctx: ScoringContext): number {
 // Recommendations
 // ---------------------------------------------------------------------------
 
-function dataConfidence(ctx: ScoringContext, adj: MotivationAdjustment): DataConfidence {
+function dataConfidence(
+  ctx: ScoringContext,
+  adj: MotivationAdjustment,
+): Recommendation["dataConfidence"] {
   const played =
     (ctx.homeTournament.matchesPlayed + ctx.awayTournament.matchesPlayed) / 2;
   const fullForm =
@@ -313,23 +321,13 @@ function dataConfidence(ctx: ScoringContext, adj: MotivationAdjustment): DataCon
   return "low";
 }
 
-function riskLevel(probability: number, edge: number): RiskLevel {
-  let level: RiskLevel =
-    probability >= 0.8 ? "low" : probability >= 0.62 ? "medium" : "high";
-  // A clearly negative edge bumps risk up one notch.
-  if (edge < -0.05) {
-    level = level === "low" ? "medium" : "high";
-  }
-  return level;
-}
-
 /** Find the bookmaker odds for a market (favourite selection where relevant). */
 function oddsFor(
   market: Market,
   ctx: ScoringContext,
   adj: MotivationAdjustment,
 ): OddsSnapshot | undefined {
-  if (market.key === "team_to_score_over_0_5") {
+  if (market.key === "favorite_team_over_0_5") {
     return ctx.odds.find(
       (o) => o.marketKey === market.key && o.selection === adj.favoriteId,
     );
@@ -348,8 +346,30 @@ export function buildRecommendation(
   const quote = oddsFor(market, ctx, adj);
   if (!quote) return null;
 
-  const edge = estimate.probability - quote.impliedProbability;
+  const edge = edgeOf(estimate.probability, quote.odds);
+  const confidence = dataConfidence(ctx, adj);
+  const risk = riskRatingOf(estimate.probability, edge);
+  const valueScore = valueScoreOf({
+    estimatedProbability: estimate.probability,
+    edge,
+    riskLevel: risk,
+    dataConfidence: confidence,
+    odds: quote.odds,
+  });
+  const trapWarning = trapWarningOf({ odds: quote.odds, edge, dataConfidence: confidence });
+  const streakSuitability = streakSuitabilityOf({
+    estimatedProbability: estimate.probability,
+    edge,
+    dataConfidence: confidence,
+    valueScore,
+  });
+
   const rationale = [...estimate.rationale, ...adj.notes];
+  if (!hasEdge(estimate.probability, quote.impliedProbability)) {
+    rationale.push(
+      "Estimated probability does not beat the bookmaker's implied probability — not a value candidate.",
+    );
+  }
 
   return {
     matchId: ctx.match.id,
@@ -360,35 +380,27 @@ export function buildRecommendation(
     odds: quote.odds,
     impliedProbability: quote.impliedProbability,
     edge: round3(edge),
-    riskLevel: riskLevel(estimate.probability, edge),
-    dataConfidence: dataConfidence(ctx, adj),
+    valueScore,
+    riskLevel: risk,
+    dataConfidence: confidence,
+    streakSuitability,
+    trapWarning,
     rationale,
   };
 }
 
-/** Every safe-focus recommendation for a match, best first. */
+/** Every streak-focus recommendation for a match, best value first. */
 export function buildRecommendations(ctx: ScoringContext): Recommendation[] {
   const adj = motivationAdjustment(ctx);
-  const recs = SAFE_FOCUS_MARKETS.map((m) => buildRecommendation(m, ctx, adj))
+  const recs = STREAK_FOCUS_MARKETS.map((m) => buildRecommendation(m, ctx, adj))
     .filter((r): r is Recommendation => r !== null)
-    .sort((a, b) => safePickScore(b) - safePickScore(a));
+    .sort((a, b) => b.valueScore - a.valueScore);
   return recs;
 }
 
-/** The single headline "estimated safer pick" for a match. */
+/** The single headline value candidate for a match (highest value score). */
 export function bestRecommendation(ctx: ScoringContext): Recommendation | null {
   return buildRecommendations(ctx)[0] ?? null;
-}
-
-/**
- * Ranking score for the headline pick: reward high hit probability, give a
- * mild bonus for positive edge, and penalise negative edge. Deliberately
- * weighted toward SAFETY (probability) over chasing value.
- */
-function safePickScore(r: Recommendation): number {
-  const edgeBonus = r.edge > 0 ? r.edge * 0.6 : r.edge * 1.2;
-  const riskBonus = r.riskLevel === "low" ? 0.05 : r.riskLevel === "high" ? -0.05 : 0;
-  return r.estimatedProbability + edgeBonus + riskBonus;
 }
 
 function round3(v: number): number {

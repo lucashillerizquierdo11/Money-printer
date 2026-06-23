@@ -5,7 +5,7 @@ import {
   getUpcomingMatches,
 } from "@/data";
 import type { WorldCupMatch } from "@/types";
-import { RiskBadge, ConfidenceBadge } from "@/components/badges";
+import { RiskBadge, ConfidenceBadge, StreakBadge } from "@/components/badges";
 import { DisclaimerFootnote } from "@/components/Disclaimer";
 import { kickoff, odds, pct, signedPct, stageLabel } from "@/lib/format";
 
@@ -19,8 +19,10 @@ export default function DashboardPage() {
       <section>
         <h1 className="text-2xl font-semibold text-white">Upcoming World Cup Matches</h1>
         <p className="mt-1 text-sm text-zinc-400">
-          Compare relatively low-risk betting markets per game. The headline pick
-          is an <em>estimated safer pick</em> — never a guaranteed bet.
+          Top value candidate per match, ranked by estimated hit probability,
+          edge against the bookmaker, and streak suitability. Nothing here is a{" "}
+          <em>guaranteed bet</em> — check the risk rating and data confidence
+          before adding a leg to a streak.
         </p>
       </section>
 
@@ -43,19 +45,20 @@ function MatchTable({ title, matches }: { title: string; matches: WorldCupMatch[
         </span>
       </h2>
       <div className="overflow-x-auto rounded-xl border border-pitch-700">
-        <table className="data w-full min-w-[900px]">
+        <table className="data w-full min-w-[1000px]">
           <thead className="bg-pitch-800">
             <tr>
               <th className="th">Date / time</th>
               <th className="th">Stage</th>
               <th className="th">Match</th>
-              <th className="th">Best low-risk market</th>
+              <th className="th">Top value candidate</th>
               <th className="th">Est. prob.</th>
               <th className="th">Odds</th>
-              <th className="th">Implied</th>
               <th className="th">Edge</th>
+              <th className="th">Value</th>
               <th className="th">Risk</th>
               <th className="th">Confidence</th>
+              <th className="th">Streak fit</th>
             </tr>
           </thead>
           <tbody>
@@ -75,7 +78,7 @@ function MatchRow({ match }: { match: WorldCupMatch }) {
   const rec = getBestRecommendation(match.id);
 
   const selectionTeam =
-    rec?.selection && rec.marketKey === "team_to_score_over_0_5"
+    rec?.selection && rec.marketKey === "favorite_team_over_0_5"
       ? getTeam(rec.selection).name
       : undefined;
 
@@ -102,12 +105,13 @@ function MatchRow({ match }: { match: WorldCupMatch }) {
       </td>
       <td className="td font-medium text-white">{rec ? pct(rec.estimatedProbability) : "—"}</td>
       <td className="td">{rec ? odds(rec.odds) : "—"}</td>
-      <td className="td text-zinc-400">{rec ? pct(rec.impliedProbability) : "—"}</td>
       <td className={`td font-medium ${edgeColor(rec?.edge)}`}>
         {rec ? signedPct(rec.edge) : "—"}
       </td>
+      <td className="td text-zinc-300">{rec ? rec.valueScore : "—"}</td>
       <td className="td">{rec ? <RiskBadge level={rec.riskLevel} /> : "—"}</td>
       <td className="td">{rec ? <ConfidenceBadge level={rec.dataConfidence} /> : "—"}</td>
+      <td className="td">{rec ? <StreakBadge level={rec.streakSuitability} /> : "—"}</td>
     </tr>
   );
 }

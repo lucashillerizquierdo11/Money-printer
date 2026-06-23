@@ -1,20 +1,23 @@
-# World Cup SafeBet Dashboard — MVP
+# World Cup Streak Value Finder — MVP
 
-A **FIFA World Cup-only** dashboard for tournament betting research. See upcoming
-World Cup matches and compare relatively **low-risk betting markets** per game,
-with model-estimated probabilities, bookmaker odds, edge, risk level and data
-confidence.
+A **FIFA World Cup-only** dashboard for tournament betting research. It ranks
+candidate markets by **estimated value against bookmaker odds** and by
+**suitability for a compounding streak**, with full transparency on
+probability, risk and the chance the whole streak survives.
 
-> ⚠️ **Research tool, not financial advice.** Every suggestion is an
-> *"estimated safer pick"*, never a guaranteed bet. The goal is to help you
-> **avoid bad bets** — not to promise profit. Bet responsibly and only stake
+> ⚠️ **Research tool, not financial advice.** No bet here is ever called
+> *"guaranteed"*, and nothing is called *"safe"* without a risk rating next to
+> it. Every candidate shows an estimated hit probability, a value score, a
+> risk rating, a data-confidence label and a streak-suitability tag
+> (`strong_candidate` / `consider` / `avoid`). Streaking compounds risk fast —
+> one loss resets the whole streak to zero. Bet responsibly and only stake
 > what you can afford to lose.
 
 ---
 
 ## Scope (read this first)
 
-This first version is **World Cup-only by design**:
+This MVP is **World Cup-only by design**:
 
 - ✅ Only FIFA World Cup fixtures, teams, groups and knockout matches.
 - ✅ All mock data is World Cup-style **national team** data.
@@ -24,42 +27,69 @@ This first version is **World Cup-only by design**:
 - ❌ **No** other competitions (Premier League, Champions League, MLS, etc.).
 - ❌ **No** generic league/competition selection.
 
-If you need multi-competition support later, it is intentionally **not** part of
-this MVP.
+## Core principle
+
+```
+impliedProbability = 1 / decimalOdds
+edge = estimatedProbability - impliedProbability
+```
+
+A bet is only ever shown as a value candidate when
+`estimatedProbability > impliedProbability`. Example: odds of 1.20 imply
+83.33%; if the model's estimated true probability is 88%, the edge is
+**+4.67 percentage points**.
+
+For a streak of legs, the chance the **whole streak survives** is the product
+of each leg's estimated probability:
+
+```
+combinedStreakProbability = leg1.probability × leg2.probability × … × legN.probability
+```
+
+Example: 10 legs at 85% each → `0.85^10 ≈ 19.7%` chance of completing the
+streak. The Streak Builder page always shows this number next to the payout
+multiplier, never the multiplier alone.
 
 ## Supported markets
 
-The dashboard focuses on relatively low-risk markets:
-
-| Market | Focus |
+| Market | Streak focus |
 | --- | --- |
-| Over 0.5 total goals | ✅ safe focus |
-| Over 1.5 total goals | ✅ safe focus |
-| Over 5.5 total corners | ✅ safe focus |
-| Over 6.5 total corners | ✅ safe focus |
-| Over 0.5 total cards | ✅ safe focus |
-| Over 1.5 total cards | ✅ safe focus |
-| Team to score over 0.5 | ✅ safe focus |
-| Double chance | ✅ safe focus |
-| Draw no bet | ✅ safe focus |
-| 1X2 | context only — **not** a safe-bet focus |
+| Over 0.5 total goals | ✅ |
+| Over 1.5 total goals | ✅ |
+| Over 5.5 total corners | ✅ |
+| Over 6.5 total corners | ✅ |
+| Over 0.5 total cards | ✅ |
+| Over 1.5 total cards | ✅ |
+| Favorite team over 0.5 goals | ✅ |
+| Both teams combined over 0.5 goals | ✅ (same outcome as Over 0.5 goals, priced separately by bet-builder tools) |
+| Double chance | ✅ |
+| Draw no bet | ✅ |
+| Player over 0.5 goals | ✅ — **only** ever shown when a bookmaker boost is active on that quote |
+| Star player — shot on target | placeholder, context only, never a streak candidate |
+| 1X2 | context only — not a streak-focus market |
+| Bet builder combinations | shown only when the app can calculate **both** the combined probability **and** the hidden correlation risk |
 
 ## Pages
 
-1. **Dashboard** (`/`) — upcoming World Cup matches only, split into **group**
-   and **knockout** stages. Columns: date/time, stage (Group A…, Round of 32…),
-   match, best low-risk market, estimated probability, odds, implied
-   probability, edge, risk level, data confidence.
-2. **Match detail** (`/match/[id]`) — team comparison for the two national
-   teams, last 5 international matches each, current World Cup performance,
-   group-table context (group stage), goals/corners/cards for & against and per
-   match, plus realised market hit rates and all priced safer picks.
-3. **Tournament Overview** (`/overview`) — matches per day, 0–0 count,
-   % of matches over 0.5 goals / 5.5 corners / 0.5 cards, average
-   goals/corners/cards per match, and a table of all completed matches.
-4. **Groups** (`/groups`) — all 12 groups with standings (P/W/D/L/GF/GA/GD/Pts),
-   upcoming group fixtures, and a **qualification-pressure** indicator
-   (must win / likely needs points / already qualified / already eliminated).
+1. **Dashboard** (`/`) — upcoming World Cup matches, split into group and
+   knockout stages, each row showing its top value candidate: estimated
+   probability, odds, edge, value score, risk rating, data confidence and
+   streak-suitability tag.
+2. **Match detail** (`/match/[id]`) — all value candidates for the match,
+   boosted-only player props, an example bet-builder combination (with hidden
+   correlation-risk warnings), team comparison, group-table context, recent
+   form and realised market hit rates.
+3. **Streak Builder** (`/streak-builder`) — pick legs across multiple
+   upcoming matches, enter a starting bankroll, and see the combined survival
+   probability, combined odds, projected payout, "one loss resets the streak"
+   messaging, and a prompt to consider a lower-risk staking strategy when the
+   streak gets long or risky.
+4. **Tournament Overview** (`/overview`) — matches per day, 0–0 count, market
+   hit-rate shares, average goals/corners/cards per match, and a table of all
+   completed matches.
+5. **Groups** (`/groups`) — all 12 groups with standings and a
+   qualification-pressure indicator (must win / likely needs points / already
+   qualified / already eliminated).
 
 ## Getting started
 
@@ -77,31 +107,47 @@ Requires Node 18+ (developed on Node 22).
 - **Data model** — `src/types/index.ts` defines database-ready interfaces:
   `WorldCupTeam`, `WorldCupGroup`, `WorldCupMatch`, `WorldCupStage`,
   `TeamRecentMatchStats`, `TeamTournamentStats`, `Market`, `OddsSnapshot`,
-  `Recommendation`, `DataSource`, `GroupStanding`.
+  `Recommendation`, `DataSource`, `GroupStanding`, `WorldCupPlayer`,
+  `PlayerPropOdds`, `BetBuilderLeg`, `BetBuilderSummary`, `StreakLeg`,
+  `StreakSummary`.
 - **Mock data** — `src/data/` generates a deterministic World Cup dataset:
-  48 national teams across 12 groups (A–L), 48 completed + 40 upcoming matches
-  (group round-robins + a projected Round of 32), last-5 international form,
-  current tournament stats, and mock odds for every supported market.
-- **Scoring** — `src/lib/scoring.ts` combines seven World Cup-specific factors:
-  1. Recent team form (last 5 internationals)
-  2. Current World Cup tournament performance
-  3. Group-stage vs knockout-stage context
-  4. Motivation pressure (see below)
-  5. Market hit rate
-  6. Implied probability from bookmaker odds
-  7. Data confidence
+  national teams across 12 groups (A–L), completed + upcoming matches,
+  last-5 international form, current tournament stats, mock odds for every
+  supported market, and mock player-goal odds (some boosted).
+- **Value scoring** — `src/lib/value.ts` computes `impliedProbability`,
+  `edge`, a `riskLevel`, a 0–100 `valueScore` (weighted by probability, edge,
+  variance, data confidence and an odds penalty for very short prices), a
+  `streakSuitability` classification, and a `trapWarning` for low-odds/
+  low-edge "safe-looking" picks.
+- **Recommendation scoring** — `src/lib/scoring.ts` combines seven World
+  Cup-specific factors (recent form, current tournament performance, stage
+  context, motivation, market hit rate, bookmaker odds, data confidence) into
+  each market's estimated probability, then runs it through `value.ts`.
+- **Streak math** — `src/lib/streak.ts` computes the combined survival
+  probability and combined odds for a set of selected legs, and always
+  surfaces the "one loss resets the streak" framing plus a lower-risk
+  staking suggestion when the streak is long, low-probability, or contains
+  high-risk legs.
+- **Bet builder** — `src/lib/betBuilder.ts` computes a naive combined
+  probability for legs within one match, but never without the accompanying
+  "hidden risk" disclosure — correlated legs (goals/team-goals/result
+  markets) make the naive multiplication optimistic.
+- **Player props** — `src/lib/playerProps.ts` only ever returns a
+  recommendation for `player_over_0_5_goals` when the underlying quote is
+  boosted; un-boosted player-goal quotes are filtered out before they reach
+  the UI.
 
 ### Motivation adjustment
 
-`motivationAdjustment()` in `src/lib/scoring.ts` nudges confidence based on team
-intent, because motivation changes how matches are played:
+`motivationAdjustment()` in `src/lib/scoring.ts` nudges confidence based on
+team intent, because motivation changes how matches are played:
 
 - **Group match, both teams need points** → slightly increase goal/corner
   confidence (open, attacking game).
 - **Knockout match** → slightly decrease goal confidence, especially Over 1.5
   (knockouts trend cautious).
-- **Heavy favourite vs weak team** → increase the favourite's team-to-score
-  confidence.
+- **Heavy favourite vs weak team** → increase the favourite's
+  favorite-team-over-0.5 confidence.
 - **Already-qualified team** → lower data confidence (rotation risk).
 
 Qualification pressure comes from `src/lib/standings.ts`, which builds each
@@ -112,8 +158,8 @@ already qualified / already eliminated / in contention*.
 
 The MVP ships with **mock** data sources (`src/data/sources.ts`, all
 `connected: false`). To go live, replace the generators in `src/data/generate.ts`
-with API calls that return the **same TypeScript shapes**. The four feeds to
-wire up:
+and `src/data/players.ts` with API calls that return the **same TypeScript
+shapes**. The feeds to wire up:
 
 1. **FIFA fixtures/results data** → fixtures, kickoff times, stages and final
    scores. Populates `WorldCupMatch` (and drives `status`).
@@ -123,6 +169,8 @@ wire up:
    `WorldCupMatch.totalCorners` / `totalCards` and the corner/card markets.
 4. **Odds comparison APIs** → bookmaker prices for each supported market,
    producing `OddsSnapshot` records (and `impliedProbability`).
+5. **Player-prop odds feeds** → per-player goal/shot prices with boost flags,
+   producing `PlayerPropOdds` records.
 
 Because every interface is database-ready, you can also persist these shapes
 directly to SQL/NoSQL and swap the in-memory store for queries.
@@ -132,10 +180,13 @@ directly to SQL/NoSQL and swap the in-memory store for queries.
 - Next.js (App Router) + React + TypeScript
 - Tailwind CSS
 - No backend required for the MVP — all data is generated client/server-side
-  from typed mock generators.
+  from typed, deterministic mock generators.
 
 ## Responsible-use note
 
-This tool surfaces **estimated safer picks** to help avoid clearly bad bets. It
-does **not** guarantee outcomes, and model estimates can be wrong. Nothing here
-is financial advice. Check your local laws and gamble responsibly.
+This tool surfaces **estimated value candidates** and **streak-suitability**
+labels to help with research, not to promise outcomes. It does **not**
+guarantee any bet, and model estimates can be wrong. Compounding a bankroll
+through a betting streak is high-variance — a single loss resets progress to
+zero. Nothing here is financial advice. Check your local laws and gamble
+responsibly.

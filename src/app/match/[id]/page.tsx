@@ -4,19 +4,22 @@ import {
   MATCHES,
   computeGroupStandings,
   getMatch,
+  getPlayerRecommendationsForMatch,
   getRecentStats,
   getRecommendationsForMatch,
   getTeam,
   getTournamentStats,
 } from "@/data";
+import { buildBetBuilderSummary } from "@/lib/betBuilder";
 import type {
+  Recommendation,
   TeamRecentMatchStats,
   TeamTournamentStats,
   WorldCupMatch,
   WorldCupTeam,
 } from "@/types";
 import { realisedHitRate } from "@/lib/markets";
-import { ConfidenceBadge, PressureBadge, RiskBadge } from "@/components/badges";
+import { ConfidenceBadge, PressureBadge, RiskBadge, StreakBadge } from "@/components/badges";
 import { DisclaimerFootnote } from "@/components/Disclaimer";
 import { kickoff, odds, pct, shortDate, signedPct, stageLabel } from "@/lib/format";
 
@@ -31,6 +34,7 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
   const home = getTeam(match.homeTeam);
   const away = getTeam(match.awayTeam);
   const recs = getRecommendationsForMatch(match.id);
+  const playerRecs = getPlayerRecommendationsForMatch(match.id);
 
   return (
     <div className="space-y-8">
@@ -48,7 +52,11 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
         </p>
       </div>
 
-      <SaferPicks recs={recs} />
+      <ValueCandidates recs={recs} />
+
+      <PlayerProps recs={playerRecs} />
+
+      <BetBuilder matchId={match.id} recs={recs} playerRecs={playerRecs} />
 
       <TeamComparison home={home} away={away} />
 
@@ -66,9 +74,9 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
   );
 }
 
-// --- Safer picks ----------------------------------------------------------
+// --- Value candidates ------------------------------------------------------
 
-function SaferPicks({ recs }: { recs: ReturnType<typeof getRecommendationsForMatch> }) {
+function ValueCandidates({ recs }: { recs: Recommendation[] }) {
   if (recs.length === 0) {
     return (
       <section className="card">
@@ -81,14 +89,15 @@ function SaferPicks({ recs }: { recs: ReturnType<typeof getRecommendationsForMat
   const [best, ...rest] = recs;
   return (
     <section className="space-y-4">
-      <h2 className="text-lg font-semibold text-white">Estimated safer picks</h2>
+      <h2 className="text-lg font-semibold text-white">Value candidates</h2>
       <div className="card border-emerald-700/50 bg-emerald-950/20">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs uppercase tracking-wide text-emerald-300">
-            Top estimated safer pick
+            Top value candidate
           </span>
           <RiskBadge level={best.riskLevel} />
           <ConfidenceBadge level={best.dataConfidence} />
+          <StreakBadge level={best.streakSuitability} />
         </div>
         <p className="mt-2 text-xl font-semibold text-white">{best.marketLabel}</p>
         <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-zinc-300">
@@ -98,7 +107,11 @@ function SaferPicks({ recs }: { recs: ReturnType<typeof getRecommendationsForMat
           <span className={best.edge >= 0 ? "text-emerald-300" : "text-rose-300"}>
             Edge: {signedPct(best.edge)}
           </span>
+          <span>Value score: <strong className="text-white">{best.valueScore}</strong>/100</span>
         </div>
+        {best.trapWarning && (
+          <p className="mt-2 text-xs text-amber-300">⚠️ {best.trapWarning}</p>
+        )}
         <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-zinc-400">
           {best.rationale.map((r, i) => (
             <li key={i}>{r}</li>
@@ -107,7 +120,7 @@ function SaferPicks({ recs }: { recs: ReturnType<typeof getRecommendationsForMat
       </div>
 
       <div className="overflow-x-auto rounded-xl border border-pitch-700">
-        <table className="data w-full min-w-[640px]">
+        <table className="data w-full min-w-[760px]">
           <thead className="bg-pitch-800">
             <tr>
               <th className="th">Market</th>
@@ -115,8 +128,10 @@ function SaferPicks({ recs }: { recs: ReturnType<typeof getRecommendationsForMat
               <th className="th">Odds</th>
               <th className="th">Implied</th>
               <th className="th">Edge</th>
+              <th className="th">Value</th>
               <th className="th">Risk</th>
               <th className="th">Confidence</th>
+              <th className="th">Streak fit</th>
             </tr>
           </thead>
           <tbody>
@@ -129,13 +144,109 @@ function SaferPicks({ recs }: { recs: ReturnType<typeof getRecommendationsForMat
                 <td className={`td ${r.edge >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
                   {signedPct(r.edge)}
                 </td>
+                <td className="td text-zinc-300">{r.valueScore}</td>
                 <td className="td"><RiskBadge level={r.riskLevel} /></td>
                 <td className="td"><ConfidenceBadge level={r.dataConfidence} /></td>
+                <td className="td"><StreakBadge level={r.streakSuitability} /></td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+    </section>
+  );
+}
+
+// --- Player props ----------------------------------------------------------
+
+function PlayerProps({ recs }: { recs: Recommendation[] }) {
+  if (recs.length === 0) return null;
+  return (
+    <section className="space-y-3">
+      <h2 className="text-lg font-semibold text-white">Player props (boosted only)</h2>
+      <p className="text-xs text-zinc-500">
+        Per spec, a player-goal candidate only ever appears here when a bookmaker
+        boost is active on that market — un-boosted player markets are never shown
+        as candidates.
+      </p>
+      <div className="overflow-x-auto rounded-xl border border-pitch-700">
+        <table className="data w-full min-w-[700px]">
+          <thead className="bg-pitch-800">
+            <tr>
+              <th className="th">Market</th>
+              <th className="th">Est. prob.</th>
+              <th className="th">Odds</th>
+              <th className="th">Edge</th>
+              <th className="th">Value</th>
+              <th className="th">Streak fit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recs.map((r) => (
+              <tr key={r.marketKey + (r.selection ?? "")}>
+                <td className="td">{r.marketLabel}</td>
+                <td className="td font-medium text-white">{pct(r.estimatedProbability)}</td>
+                <td className="td">{odds(r.odds)}</td>
+                <td className={`td ${r.edge >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                  {signedPct(r.edge)}
+                </td>
+                <td className="td text-zinc-300">{r.valueScore}</td>
+                <td className="td"><StreakBadge level={r.streakSuitability} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+// --- Bet builder -------------------------------------------------------------
+
+function BetBuilder({
+  matchId,
+  recs,
+  playerRecs,
+}: {
+  matchId: string;
+  recs: Recommendation[];
+  playerRecs: Recommendation[];
+}) {
+  const legs = [...recs, ...playerRecs].slice(0, 3);
+  if (legs.length < 2) return null;
+  const summary = buildBetBuilderSummary(matchId, legs);
+
+  return (
+    <section className="card space-y-2">
+      <h2 className="text-lg font-semibold text-white">
+        Example bet builder — top {legs.length} candidates combined
+      </h2>
+      <p className="text-xs text-zinc-500">
+        Combining legs from the same match multiplies the odds, but the legs are
+        often correlated — the naive combined probability below is optimistic,
+        not a guarantee.
+      </p>
+      <ul className="list-disc space-y-1 pl-5 text-sm text-zinc-300">
+        {summary.legs.map((l) => (
+          <li key={l.marketKey + (l.selection ?? "")}>{l.marketLabel}</li>
+        ))}
+      </ul>
+      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-zinc-300">
+        <span>
+          Naive combined probability:{" "}
+          <strong className="text-white">{pct(summary.naiveCombinedProbability)}</strong>
+        </span>
+        <span>Combined odds: <strong className="text-white">{odds(summary.combinedOdds)}</strong></span>
+        <span>Combined implied: {pct(summary.combinedImpliedProbability)}</span>
+        <span className={summary.edge >= 0 ? "text-emerald-300" : "text-rose-300"}>
+          Edge: {signedPct(summary.edge)}
+        </span>
+      </div>
+      <ul className="list-disc space-y-1 pl-5 text-xs text-amber-300">
+        {summary.hiddenRisk.map((w, i) => (
+          <li key={i}>⚠️ {w}</li>
+        ))}
+      </ul>
     </section>
   );
 }

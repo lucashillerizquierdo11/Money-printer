@@ -2,6 +2,7 @@ import Link from "next/link";
 
 const LINKS = [
   { href: "/", label: "Dashboard" },
+  { href: "/streak-builder", label: "Streak Builder" },
   { href: "/overview", label: "Tournament Overview" },
   { href: "/groups", label: "Groups" },
 ];
@@ -13,7 +14,7 @@ export function Nav() {
         <Link href="/" className="flex items-center gap-2">
           <span className="text-xl">🏆</span>
           <span className="font-semibold tracking-tight text-white">
-            World Cup SafeBet Dashboard
+            World Cup Streak Value Finder
           </span>
           <span className="rounded bg-emerald-800/60 px-1.5 py-0.5 text-[10px] font-medium uppercase text-emerald-200">
             MVP

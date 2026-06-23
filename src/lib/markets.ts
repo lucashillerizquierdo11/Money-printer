@@ -1,9 +1,9 @@
 /**
- * Supported low-risk betting markets for the World Cup SafeBet MVP.
+ * Supported betting markets for the World Cup Streak Value Finder MVP.
  *
  * Only the markets listed below are supported. 1X2 is included for context but
- * is flagged `isSafeFocus: false` so it is never surfaced as the headline
- * "safer pick".
+ * is flagged `isStreakFocus: false` so it is never surfaced as a streak
+ * candidate. Player markets only ever appear when a boosted-odds quote exists.
  */
 
 import type { Market, MarketKey, WorldCupMatch } from "@/types";
@@ -14,7 +14,7 @@ export const MARKETS: Record<MarketKey, Market> = {
     label: "Over 0.5 total goals",
     category: "goals",
     line: 0.5,
-    isSafeFocus: true,
+    isStreakFocus: true,
     description: "At least one goal is scored in the match.",
   },
   over_1_5_goals: {
@@ -22,7 +22,7 @@ export const MARKETS: Record<MarketKey, Market> = {
     label: "Over 1.5 total goals",
     category: "goals",
     line: 1.5,
-    isSafeFocus: true,
+    isStreakFocus: true,
     description: "At least two goals are scored in the match.",
   },
   over_5_5_corners: {
@@ -30,7 +30,7 @@ export const MARKETS: Record<MarketKey, Market> = {
     label: "Over 5.5 total corners",
     category: "corners",
     line: 5.5,
-    isSafeFocus: true,
+    isStreakFocus: true,
     description: "At least six corners are taken in the match.",
   },
   over_6_5_corners: {
@@ -38,7 +38,7 @@ export const MARKETS: Record<MarketKey, Market> = {
     label: "Over 6.5 total corners",
     category: "corners",
     line: 6.5,
-    isSafeFocus: true,
+    isStreakFocus: true,
     description: "At least seven corners are taken in the match.",
   },
   over_0_5_cards: {
@@ -46,7 +46,7 @@ export const MARKETS: Record<MarketKey, Market> = {
     label: "Over 0.5 total cards",
     category: "cards",
     line: 0.5,
-    isSafeFocus: true,
+    isStreakFocus: true,
     description: "At least one card is shown in the match.",
   },
   over_1_5_cards: {
@@ -54,47 +54,75 @@ export const MARKETS: Record<MarketKey, Market> = {
     label: "Over 1.5 total cards",
     category: "cards",
     line: 1.5,
-    isSafeFocus: true,
+    isStreakFocus: true,
     description: "At least two cards are shown in the match.",
   },
-  team_to_score_over_0_5: {
-    key: "team_to_score_over_0_5",
-    label: "Team to score over 0.5",
+  favorite_team_over_0_5: {
+    key: "favorite_team_over_0_5",
+    label: "Favorite team over 0.5 goals",
     category: "team_goals",
     line: 0.5,
-    isSafeFocus: true,
-    description: "A specific team scores at least one goal.",
+    isStreakFocus: true,
+    description: "The match favorite (by ranking/odds) scores at least one goal.",
+  },
+  both_teams_combined_over_0_5: {
+    key: "both_teams_combined_over_0_5",
+    label: "Both teams combined over 0.5 goals",
+    category: "goals",
+    line: 0.5,
+    isStreakFocus: true,
+    description:
+      "Combined goals from both teams exceed 0.5 — same outcome as Over 0.5 total goals, priced separately by some bet-builder tools.",
   },
   double_chance: {
     key: "double_chance",
     label: "Double chance",
     category: "result",
-    isSafeFocus: true,
+    isStreakFocus: true,
     description: "Covers two of the three match outcomes.",
   },
   draw_no_bet: {
     key: "draw_no_bet",
     label: "Draw no bet",
     category: "result",
-    isSafeFocus: true,
+    isStreakFocus: true,
     description: "Stake returned if the match is drawn.",
+  },
+  player_over_0_5_goals: {
+    key: "player_over_0_5_goals",
+    label: "Player over 0.5 goals (boosted only)",
+    category: "player_props",
+    line: 0.5,
+    isStreakFocus: true,
+    requiresPlayerOdds: true,
+    description:
+      "A named player scores at least once. Only shown when a boosted-odds price is available.",
+  },
+  player_shot_on_target: {
+    key: "player_shot_on_target",
+    label: "Star player — shot on target (placeholder)",
+    category: "player_props",
+    isStreakFocus: false,
+    requiresPlayerOdds: true,
+    description:
+      "Optional placeholder market for a named player to record a shot on target.",
   },
   "1x2": {
     key: "1x2",
     label: "1X2 (context only)",
     category: "result",
-    isSafeFocus: false,
+    isStreakFocus: false,
     description:
-      "Home / draw / away. Shown for context — not a safe-bet focus market.",
+      "Home / draw / away. Shown for context — not a streak-candidate focus market.",
   },
 };
 
 /** All markets as an ordered list. */
 export const MARKET_LIST: Market[] = Object.values(MARKETS);
 
-/** Only the markets that are part of the "safer pick" focus. */
-export const SAFE_FOCUS_MARKETS: Market[] = MARKET_LIST.filter(
-  (m) => m.isSafeFocus,
+/** Only the markets that are part of the streak-candidate focus. */
+export const STREAK_FOCUS_MARKETS: Market[] = MARKET_LIST.filter(
+  (m) => m.isStreakFocus && !m.requiresPlayerOdds,
 );
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,5 @@
 /**
- * Central mock data store + selectors for the World Cup SafeBet Dashboard.
+ * Central mock data store + selectors for the World Cup Streak Value Finder.
  *
  * All World Cup-only. This module assembles the deterministic mock dataset once
  * and exposes typed selectors the pages consume. Replace the generators behind
@@ -9,6 +9,7 @@
 import type {
   GroupLetter,
   OddsSnapshot,
+  PlayerPropOdds,
   Recommendation,
   TeamRecentMatchStats,
   TeamTournamentStats,
@@ -19,12 +20,15 @@ import {
   bestRecommendation,
   type ScoringContext,
 } from "@/lib/scoring";
+import { buildPlayerGoalRecommendation } from "@/lib/playerProps";
 import { standingForTeam } from "@/lib/standings";
 import { generateData, generateRecentStats } from "./generate";
+import { PLAYERS, getPlayer } from "./players";
 import { TEAMS, getTeam } from "./teams";
 
 export { TEAMS, GROUPS, getTeam, getTeamSafe } from "./teams";
 export { DATA_SOURCES } from "./sources";
+export { PLAYERS, getPlayer } from "./players";
 
 // --- Build the dataset once -----------------------------------------------
 
@@ -39,6 +43,7 @@ const TOURNAMENT_STATS: Record<string, TeamTournamentStats> =
 
 export const MATCHES: WorldCupMatch[] = DATA.matches;
 export const ODDS: OddsSnapshot[] = DATA.odds;
+export const PLAYER_ODDS: PlayerPropOdds[] = DATA.playerOdds;
 
 // --- Basic selectors ------------------------------------------------------
 
@@ -72,6 +77,10 @@ export function getOddsForMatch(matchId: string): OddsSnapshot[] {
   return ODDS.filter((o) => o.matchId === matchId);
 }
 
+export function getPlayerOddsForMatch(matchId: string): PlayerPropOdds[] {
+  return PLAYER_ODDS.filter((o) => o.matchId === matchId);
+}
+
 function byKickoff(a: WorldCupMatch, b: WorldCupMatch): number {
   return a.kickoffTime.localeCompare(b.kickoffTime);
 }
@@ -98,14 +107,50 @@ export function buildScoringContext(matchId: string): ScoringContext | null {
   };
 }
 
+/** Team-market recommendations only (no player props), best value first. */
 export function getRecommendationsForMatch(matchId: string): Recommendation[] {
   const ctx = buildScoringContext(matchId);
   return ctx ? buildRecommendations(ctx) : [];
 }
 
+/**
+ * Player-prop recommendations for a match. Per spec, "player over 0.5 goals"
+ * only ever surfaces when a boosted-odds quote exists.
+ */
+export function getPlayerRecommendationsForMatch(matchId: string): Recommendation[] {
+  const quotes = getPlayerOddsForMatch(matchId).filter(
+    (q) => q.marketKey === "player_over_0_5_goals" && q.isBoosted,
+  );
+  return quotes
+    .map((q) => {
+      const player = getPlayer(q.playerId);
+      return player ? buildPlayerGoalRecommendation(player, q) : null;
+    })
+    .filter((r): r is Recommendation => r !== null)
+    .sort((a, b) => b.valueScore - a.valueScore);
+}
+
+/** All value candidates for a match: team markets + boosted player props. */
+export function getAllRecommendationsForMatch(matchId: string): Recommendation[] {
+  return [...getRecommendationsForMatch(matchId), ...getPlayerRecommendationsForMatch(matchId)].sort(
+    (a, b) => b.valueScore - a.valueScore,
+  );
+}
+
 export function getBestRecommendation(matchId: string): Recommendation | null {
   const ctx = buildScoringContext(matchId);
-  return ctx ? bestRecommendation(ctx) : null;
+  const teamBest = ctx ? bestRecommendation(ctx) : null;
+  const playerBest = getPlayerRecommendationsForMatch(matchId)[0] ?? null;
+  if (!teamBest) return playerBest;
+  if (!playerBest) return teamBest;
+  return playerBest.valueScore > teamBest.valueScore ? playerBest : teamBest;
+}
+
+/** Players eligible for a given match (on either roster). */
+export function getEligiblePlayers(matchId: string) {
+  const match = getMatch(matchId);
+  if (!match) return [];
+  return PLAYERS.filter((p) => p.teamId === match.homeTeam || p.teamId === match.awayTeam);
 }
 
 export { computeAllStandings, computeGroupStandings } from "@/lib/standings";

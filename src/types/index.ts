@@ -1,5 +1,5 @@
 /**
- * World Cup SafeBet Dashboard — Core data model.
+ * World Cup Streak Value Finder — Core data model.
  *
  * SCOPE: FIFA World Cup ONLY. These types intentionally model national-team
  * tournament football (groups, knockout stages, qualification pressure) and do
@@ -8,6 +8,12 @@
  * Every interface here is "database-ready": it uses primitive/serializable
  * fields and string ids so it can map directly onto SQL tables or a document
  * store when a real data source is connected later (see README).
+ *
+ * LANGUAGE RULES (enforced throughout the app, not just here):
+ *  - Never describe a bet as "guaranteed".
+ *  - Never say "safe" without showing the accompanying risk rating.
+ *  - Use: estimated hit probability, value score, streak suitability, risk
+ *    rating, data confidence, market edge, avoid / consider / strong candidate.
  */
 
 // ---------------------------------------------------------------------------
@@ -144,13 +150,14 @@ export interface TeamTournamentStats {
 // Markets, odds & recommendations
 // ---------------------------------------------------------------------------
 
-/** Category groups for the supported low-risk markets. */
+/** Category groups for the supported markets. */
 export type MarketCategory =
   | "goals"
   | "corners"
   | "cards"
   | "team_goals"
-  | "result";
+  | "result"
+  | "player_props";
 
 /** Stable keys for every market supported in the MVP. */
 export type MarketKey =
@@ -160,9 +167,12 @@ export type MarketKey =
   | "over_6_5_corners"
   | "over_0_5_cards"
   | "over_1_5_cards"
-  | "team_to_score_over_0_5"
+  | "favorite_team_over_0_5"
+  | "both_teams_combined_over_0_5"
   | "double_chance"
   | "draw_no_bet"
+  | "player_over_0_5_goals"
+  | "player_shot_on_target"
   | "1x2";
 
 /** Definition of a betting market the dashboard can analyse. */
@@ -173,10 +183,13 @@ export interface Market {
   /** Numeric line where relevant (e.g. 0.5, 5.5). */
   line?: number;
   /**
-   * Whether this market is part of the "safer pick" focus. 1X2 is shown for
-   * context only and is intentionally NOT a safe-bet focus market.
+   * Whether this market is part of the streak-candidate focus (high hit
+   * probability, low variance). 1X2 is shown for context only and is
+   * intentionally NOT a streak-candidate focus market.
    */
-  isSafeFocus: boolean;
+  isStreakFocus: boolean;
+  /** True only for markets that require a player-prop / boosted-odds quote. */
+  requiresPlayerOdds?: boolean;
   description: string;
 }
 
@@ -196,35 +209,162 @@ export interface OddsSnapshot {
   capturedAt: string;
 }
 
-/** Discrete risk buckets shown to the user. */
+/**
+ * Discrete risk rating shown to the user. Never shown without context — the
+ * app must never call something "safe" without also surfacing this rating.
+ */
 export type RiskLevel = "low" | "medium" | "high";
 
 /** Confidence in the underlying data feeding a recommendation. */
 export type DataConfidence = "high" | "medium" | "low";
 
 /**
- * A model-estimated "safer pick" for a single match + market.
+ * How suitable a candidate is for a streak/compounding strategy: high hit
+ * probability, low variance, and not a "trap" (low odds with little/no edge).
+ */
+export type StreakSuitability = "strong_candidate" | "consider" | "avoid";
+
+/**
+ * A model-estimated value candidate for a single match + market.
  * NOTE: this is research output, never a guarantee. UI must use language such
- * as "estimated safer pick" and surface the research disclaimer.
+ * as "estimated hit probability" / "value score" / "strong candidate" and
+ * must always show the risk rating alongside it — never call a bet "safe"
+ * without showing the risk.
  */
 export interface Recommendation {
   matchId: string;
   marketKey: MarketKey;
   marketLabel: string;
   selection?: string;
-  /** Model probability the market hits, 0..1. */
+  /** Model-estimated hit probability, 0..1. */
   estimatedProbability: number;
   /** Decimal odds used. */
   odds: number;
   /** Bookmaker implied probability, 0..1. */
   impliedProbability: number;
-  /** estimatedProbability - impliedProbability. */
+  /** estimatedProbability - impliedProbability (market edge). */
   edge: number;
+  /** 0..100 composite score blending probability, edge, variance & confidence. */
+  valueScore: number;
   riskLevel: RiskLevel;
   dataConfidence: DataConfidence;
+  streakSuitability: StreakSuitability;
+  /**
+   * Set when the market looks "safe" on the surface (very low odds) but
+   * carries little or no edge, or low data confidence — a classic trap for
+   * streak bettors chasing short-priced "locks".
+   */
+  trapWarning?: string;
   /** Human-readable factors behind the estimate. */
   rationale: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Player props
+// ---------------------------------------------------------------------------
+
+/** A national-team player, for the optional player-prop markets. */
+export interface WorldCupPlayer {
+  id: string;
+  teamId: string;
+  name: string;
+  position: "GK" | "DF" | "MF" | "FW";
+  /** Average goals per international appearance, mock value. */
+  avgGoalsPerMatch: number;
+  /** Average shots on target per appearance, mock value. */
+  avgShotsOnTarget: number;
+}
+
+/**
+ * A bookmaker quote for a player-prop market. `isBoosted` must be true for
+ * "player over 0.5 goals" to ever appear as a candidate per the product spec
+ * — un-boosted player-goal markets are not supported in the MVP.
+ */
+export interface PlayerPropOdds {
+  id: string;
+  matchId: string;
+  playerId: string;
+  marketKey: "player_over_0_5_goals" | "player_shot_on_target";
+  bookmaker: string;
+  odds: number;
+  impliedProbability: number;
+  isBoosted: boolean;
+  capturedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Bet builder (single match, multiple legs)
+// ---------------------------------------------------------------------------
+
+/** One leg inside a bet-builder combination, referencing a priced recommendation. */
+export interface BetBuilderLeg {
+  marketKey: MarketKey;
+  marketLabel: string;
+  selection?: string;
+  estimatedProbability: number;
+  odds: number;
+}
+
+/**
+ * A calculated bet-builder combination. Legs from the SAME match are usually
+ * correlated (e.g. "over 1.5 goals" + "both teams combined over 0.5 goals"),
+ * so naively multiplying probabilities understates the true joint probability
+ * and the combined market odds overstate the payout. `hiddenRisk` surfaces
+ * that gap to the user instead of hiding it.
+ */
+export interface BetBuilderSummary {
+  matchId: string;
+  legs: BetBuilderLeg[];
+  /** Naive product of independent leg probabilities — a lower bound when legs are correlated. */
+  naiveCombinedProbability: number;
+  /** Combined bookmaker odds (product of leg odds). */
+  combinedOdds: number;
+  /** 1 / combinedOdds. */
+  combinedImpliedProbability: number;
+  /** naiveCombinedProbability - combinedImpliedProbability. */
+  edge: number;
+  /** Explanation of why correlated legs make the naive probability unreliable. */
+  hiddenRisk: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Streak builder (multiple legs across matches)
+// ---------------------------------------------------------------------------
+
+/** One leg selected into a cross-match streak. */
+export interface StreakLeg {
+  matchId: string;
+  marketKey: MarketKey;
+  marketLabel: string;
+  selection?: string;
+  estimatedProbability: number;
+  odds: number;
+  riskLevel: RiskLevel;
+  dataConfidence: DataConfidence;
+}
+
+/**
+ * Computed outcome of a multi-leg streak: each leg must win for the streak to
+ * survive, and a single loss resets the bankroll progress to zero (or to the
+ * last cashed-out point). This is intentionally framed around survival
+ * probability, not "expected winnings" — the tool never promises profit.
+ */
+export interface StreakSummary {
+  legs: StreakLeg[];
+  /** Product of each leg's estimated probability — chance the WHOLE streak survives. */
+  combinedSurvivalProbability: number;
+  /** Product of each leg's decimal odds — the multiplier if every leg wins. */
+  combinedOdds: number;
+  /** Starting bankroll the user enters, in their chosen currency. */
+  startingBankroll: number;
+  /** startingBankroll * combinedOdds, assuming full stake-and-roll each leg. */
+  projectedPayout: number;
+  /** Whether a flat/partial staking strategy is flagged as lower-risk than full roll-over. */
+  lowerRiskAlternativeSuggested: boolean;
+  notes: string[];
+}
+
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Standings & data sources
