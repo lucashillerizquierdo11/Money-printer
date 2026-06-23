@@ -10,7 +10,15 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { getAllUpcomingRecommendations, getMatch, getTeam } from "@/data";
-import { combinedStreakProbability, kellyFraction, legsNeededForTarget, requiredMultiplier } from "@/lib/streak";
+import {
+  ALL_IN_RISK_WARNING,
+  buildStreakPlans,
+  combinedStreakProbability,
+  kellyFraction,
+  legsNeededForTarget,
+  requiredMultiplier,
+  type StreakPlan,
+} from "@/lib/streak";
 import type { Recommendation } from "@/types";
 import { ConfidenceBadge, RiskBadge, StreakBadge } from "@/components/badges";
 import { DisclaimerFootnote } from "@/components/Disclaimer";
@@ -67,6 +75,11 @@ export default function StreakPage() {
 
   const finalBankroll = simulateBankroll(mode, suggestedLegs, startingBankroll, percentageStake);
 
+  const optimizerResult = useMemo(
+    () => buildStreakPlans(allRecs, startingBankroll, targetBankroll),
+    [allRecs, startingBankroll, targetBankroll],
+  );
+
   return (
     <div className="space-y-6">
       <section>
@@ -110,9 +123,29 @@ export default function StreakPage() {
 
       {mode === "all_in" && (
         <div className="rounded-xl border border-rose-700/60 bg-rose-950/40 p-4 text-sm font-medium text-rose-200">
-          ⚠️ All-in compounding has high risk. One loss resets the bankroll.
+          ⚠️ {ALL_IN_RISK_WARNING}
         </div>
       )}
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-white">Streak optimizer</h2>
+        <p className="text-sm text-zinc-400">
+          Three candidate streak paths built automatically from every
+          positive-edge market across upcoming matches (one leg per match —
+          correlated legs from the same match are never stacked).
+        </p>
+        {!optimizerResult.hasPositiveEdgePath ? (
+          <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 p-4 text-sm font-medium text-amber-200">
+            ⚠️ {optimizerResult.message}
+          </div>
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-3">
+            {optimizerResult.plans.map((plan) => (
+              <StreakPlanCard key={plan.strategy} plan={plan} />
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="card space-y-3">
         <h2 className="text-lg font-semibold text-white">Outputs</h2>
@@ -193,6 +226,61 @@ export default function StreakPage() {
       </section>
 
       <DisclaimerFootnote />
+    </div>
+  );
+}
+
+function StreakPlanCard({ plan }: { plan: StreakPlan }) {
+  return (
+    <div className="card space-y-3">
+      <div>
+        <h3 className="font-semibold text-white">{plan.label}</h3>
+        <p className="mt-1 text-xs text-zinc-400">{plan.rationale}</p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <Stat label="Combined odds" value={odds(plan.combinedOdds)} />
+        <Stat
+          label="Expected final bankroll"
+          value={`${plan.expectedFinalBankroll.toFixed(0)} kr`}
+          warn={!plan.targetReached}
+        />
+        <Stat label="Combined probability" value={pct(plan.combinedProbability)} />
+        <Stat label="Legs" value={String(plan.legs.length)} />
+      </div>
+
+      {!plan.targetReached && (
+        <p className="text-xs text-amber-300">
+          ⚠️ Even with every leg in this plan winning, the projected bankroll
+          falls short of your target.
+        </p>
+      )}
+
+      {plan.legs.length === 0 ? (
+        <p className="text-xs text-zinc-500">No eligible legs for this plan.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {plan.legs.map((leg) => (
+            <div
+              key={`${leg.matchId}:${leg.marketLabel}:${leg.selection ?? ""}`}
+              className="flex items-center justify-between gap-2 rounded border border-pitch-700 bg-pitch-900/60 px-2 py-1.5 text-xs"
+            >
+              <div className="min-w-0">
+                <Link href={`/match/${leg.matchId}`} className="block truncate text-emerald-300 hover:underline">
+                  {leg.marketLabel}
+                  {leg.isBoosted ? " 🚀" : ""}
+                </Link>
+                <div className="text-zinc-500">
+                  {pct(leg.estimatedProbability)} prob · {signedPct(leg.edge)} edge
+                </div>
+              </div>
+              <div className="whitespace-nowrap font-medium text-white">{odds(leg.odds)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <p className="text-xs text-rose-300">⚠️ Biggest risk: {plan.biggestRisk}</p>
     </div>
   );
 }
