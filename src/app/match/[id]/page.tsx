@@ -23,9 +23,13 @@ import type {
   WorldCupTeam,
 } from "@/types";
 import { realisedHitRate, teamHitRate, tournamentHitRateForMarket } from "@/lib/markets";
-import { ConfidenceBadge, PressureBadge, RecommendationBadge, RiskBadge, StreakBadge } from "@/components/badges";
+import { PressureBadge, RecommendationBadge, RiskBadge, StreakBadge } from "@/components/badges";
 import { recommendationLabelOf } from "@/lib/value";
 import { DisclaimerFootnote } from "@/components/Disclaimer";
+import { RecommendationCard } from "@/components/RecommendationCard";
+import { MarketEvaluationTable } from "@/components/MarketEvaluationTable";
+import { CardsTrendChart, CornersTrendChart, GoalsTrendChart } from "@/components/charts/TrendCharts";
+import { MarketHitRateChart } from "@/components/charts/MarketHitRateChart";
 import { kickoff, odds, pct, shortDate, signedPct, stageLabel } from "@/lib/format";
 
 export function generateStaticParams() {
@@ -66,6 +70,8 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
       <BetBuilder matchId={match.id} recs={recs} playerRecs={playerRecs} />
 
       <TeamComparison home={home} away={away} />
+
+      <TrendCharts home={home} away={away} />
 
       {match.groupLetter && <GroupContext match={match} />}
 
@@ -169,69 +175,8 @@ function ValueCandidates({ recs }: { recs: Recommendation[] }) {
   return (
     <section className="space-y-4">
       <h2 className="text-lg font-semibold text-white">Value candidates</h2>
-      <div className="card border-emerald-700/50 bg-emerald-950/20">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs uppercase tracking-wide text-emerald-300">
-            Top value candidate
-          </span>
-          <RiskBadge level={best.riskLevel} />
-          <ConfidenceBadge level={best.dataConfidence} />
-          <StreakBadge level={best.streakSuitability} />
-        </div>
-        <p className="mt-2 text-xl font-semibold text-white">{best.marketLabel}</p>
-        <div className="mt-2 flex flex-wrap gap-x-6 gap-y-1 text-sm text-zinc-300">
-          <span>Est. probability: <strong className="text-white">{pct(best.estimatedProbability)}</strong></span>
-          <span>Odds: <strong className="text-white">{odds(best.odds)}</strong></span>
-          <span>Implied: {pct(best.impliedProbability)}</span>
-          <span className={best.edge >= 0 ? "text-emerald-300" : "text-rose-300"}>
-            Edge: {signedPct(best.edge)}
-          </span>
-          <span>Value score: <strong className="text-white">{best.valueScore}</strong>/100</span>
-        </div>
-        {best.trapWarning && (
-          <p className="mt-2 text-xs text-amber-300">⚠️ {best.trapWarning}</p>
-        )}
-        <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-zinc-400">
-          {best.rationale.map((r, i) => (
-            <li key={i}>{r}</li>
-          ))}
-        </ul>
-      </div>
-
-      <div className="overflow-x-auto rounded-xl border border-pitch-700">
-        <table className="data w-full min-w-[760px]">
-          <thead className="bg-pitch-800">
-            <tr>
-              <th className="th">Market</th>
-              <th className="th">Est. prob.</th>
-              <th className="th">Odds</th>
-              <th className="th">Implied</th>
-              <th className="th">Edge</th>
-              <th className="th">Value</th>
-              <th className="th">Risk</th>
-              <th className="th">Confidence</th>
-              <th className="th">Streak fit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rest.map((r) => (
-              <tr key={r.marketKey + (r.selection ?? "")}>
-                <td className="td">{r.marketLabel}</td>
-                <td className="td font-medium text-white">{pct(r.estimatedProbability)}</td>
-                <td className="td">{odds(r.odds)}</td>
-                <td className="td text-zinc-400">{pct(r.impliedProbability)}</td>
-                <td className={`td ${r.edge >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                  {signedPct(r.edge)}
-                </td>
-                <td className="td text-zinc-300">{r.valueScore}</td>
-                <td className="td"><RiskBadge level={r.riskLevel} /></td>
-                <td className="td"><ConfidenceBadge level={r.dataConfidence} /></td>
-                <td className="td"><StreakBadge level={r.streakSuitability} /></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <RecommendationCard rec={best} />
+      <MarketEvaluationTable rows={rest} />
     </section>
   );
 }
@@ -528,6 +473,26 @@ function tournamentRows(
   ];
 }
 
+// --- Trend charts ----------------------------------------------------------
+
+function TrendCharts({ home, away }: { home: WorldCupTeam; away: WorldCupTeam }) {
+  const hr = getRecentStats(home.id);
+  const ar = getRecentStats(away.id);
+  return (
+    <section className="space-y-3">
+      <h2 className="text-lg font-semibold text-white">Recent form trends</h2>
+      <div className="grid gap-3 md:grid-cols-2">
+        <GoalsTrendChart matches={hr.matches} teamLabel={home.name} />
+        <GoalsTrendChart matches={ar.matches} teamLabel={away.name} />
+        <CornersTrendChart matches={hr.matches} teamLabel={home.name} />
+        <CornersTrendChart matches={ar.matches} teamLabel={away.name} />
+        <CardsTrendChart matches={hr.matches} teamLabel={home.name} />
+        <CardsTrendChart matches={ar.matches} teamLabel={away.name} />
+      </div>
+    </section>
+  );
+}
+
 // --- Group context --------------------------------------------------------
 
 function GroupContext({ match }: { match: WorldCupMatch }) {
@@ -660,11 +625,12 @@ function HitRates({ home, away }: { home: WorldCupTeam; away: WorldCupTeam }) {
           <div key={r.label} className="card flex items-center justify-between">
             <span className="text-sm text-zinc-300">{r.label}</span>
             <span className="text-lg font-semibold text-white">
-              {r.rate === null ? "—" : pct(r.rate)}
+              {r.rate === null ? "—" : pct(r.rate, 1)}
             </span>
           </div>
         ))}
       </div>
+      <MarketHitRateChart rows={rows.filter((r): r is { label: string; rate: number } => r.rate !== null)} />
     </section>
   );
 }

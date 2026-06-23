@@ -8,11 +8,12 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { getAllRecommendationsForMatch, getTeam, getUpcomingMatches } from "@/data";
+import { getAllRecommendationsForMatch, getBestRecommendation, getTeam, getUpcomingMatches } from "@/data";
 import { MARKET_LIST } from "@/lib/markets";
 import { applySettingsToRecommendation, passesSettingsThresholds, type ScoredRecommendation } from "@/lib/settings";
 import { useSettings } from "@/components/SettingsProvider";
 import type { RiskLevel, WorldCupMatch } from "@/types";
+import { MatchCard } from "@/components/MatchCard";
 import { ConfidenceBadge, RecommendationBadge, RiskBadge, StreakBadge } from "@/components/badges";
 import { DisclaimerFootnote } from "@/components/Disclaimer";
 import { kickoff, odds, pct, shortDate, signedPct, stageLabel } from "@/lib/format";
@@ -83,6 +84,25 @@ export default function DashboardPage() {
           value score. Filter below — nothing here is a guaranteed bet, so
           always check the risk rating and data confidence next to a row.
         </p>
+      </section>
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-white">Upcoming matches</h2>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {upcoming.slice(0, 8).map((match) => {
+            const home = getTeam(match.homeTeam);
+            const away = getTeam(match.awayTeam);
+            return (
+              <MatchCard
+                key={match.id}
+                match={match}
+                home={home}
+                away={away}
+                topRecommendation={getBestRecommendation(match.id)}
+              />
+            );
+          })}
+        </div>
       </section>
 
       <section className="card grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -175,8 +195,8 @@ export default function DashboardPage() {
                     </td>
                     <td className="td">{rec.marketLabel}{rec.isBoosted ? " 🚀" : ""}</td>
                     <td className="td">{odds(rec.odds)}</td>
-                    <td className="td text-zinc-400">{pct(rec.impliedProbability)}</td>
-                    <td className="td font-medium text-white">{pct(rec.estimatedProbability)}</td>
+                    <td className="td text-zinc-400">{pct(rec.impliedProbability, 1)}</td>
+                    <td className="td font-medium text-white">{pct(rec.estimatedProbability, 1)}</td>
                     <td className={`td font-medium ${rec.edge >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
                       {signedPct(rec.edge)}
                     </td>

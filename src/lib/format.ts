@@ -13,6 +13,11 @@ export function odds(value: number): string {
   return value.toFixed(2);
 }
 
+/** kr currency formatting, e.g. "10,000 kr". */
+export function kr(value: number): string {
+  return `${Math.round(value).toLocaleString("en-GB")} kr`;
+}
+
 export function kickoff(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleString("en-GB", {

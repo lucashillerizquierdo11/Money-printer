@@ -14,10 +14,10 @@ import {
   getUpcomingMatches,
 } from "@/data";
 import { buildPlayerGoalRecommendation } from "@/lib/playerProps";
-import { RecommendationBadge, RiskBadge, StreakBadge } from "@/components/badges";
+import { BoostCard } from "@/components/BoostCard";
 import { DisclaimerFootnote } from "@/components/Disclaimer";
 import { recommendationLabelOf } from "@/lib/value";
-import { kickoff, odds, pct, signedPct } from "@/lib/format";
+import { kickoff } from "@/lib/format";
 import type { PlayerPropOdds } from "@/types";
 
 export default function BoostsPage() {
@@ -68,56 +68,25 @@ export default function BoostsPage() {
           <p className="text-sm text-zinc-400">No active boosts right now.</p>
         </section>
       ) : (
-        <div className="overflow-x-auto rounded-xl border border-pitch-700">
-          <table className="data w-full min-w-[1200px]">
-            <thead className="bg-pitch-800">
-              <tr>
-                <th className="th">Bookmaker</th>
-                <th className="th">Market</th>
-                <th className="th">Player</th>
-                <th className="th">Normal odds</th>
-                <th className="th">Boosted odds</th>
-                <th className="th">Max stake</th>
-                <th className="th">Est. prob.</th>
-                <th className="th">Implied (boosted)</th>
-                <th className="th">Edge</th>
-                <th className="th">True boost value</th>
-                <th className="th">Risk</th>
-                <th className="th">Streak fit</th>
-                <th className="th">Recommendation</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ quote, player, match, rec, trueBoostValue, recommendationLabel }) => {
-                const home = getTeam(match.homeTeam);
-                const away = getTeam(match.awayTeam);
-                return (
-                  <tr key={quote.id}>
-                    <td className="td whitespace-nowrap">{quote.bookmaker}</td>
-                    <td className="td whitespace-nowrap">
-                      {rec.marketLabel}
-                      <div className="text-xs text-zinc-500">
-                        {home.flag} {home.name} v {away.name} {away.flag} · {kickoff(match.kickoffTime)}
-                      </div>
-                    </td>
-                    <td className="td whitespace-nowrap">{player.name}</td>
-                    <td className="td text-zinc-400 line-through">{odds(quote.normalOdds!)}</td>
-                    <td className="td font-semibold text-emerald-300">{odds(quote.odds)}</td>
-                    <td className="td">{quote.maxStake ? `${quote.maxStake} kr` : "—"}</td>
-                    <td className="td font-medium text-white">{pct(rec.estimatedProbability)}</td>
-                    <td className="td text-zinc-400">{pct(rec.impliedProbability)}</td>
-                    <td className={`td font-medium ${rec.edge >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                      {signedPct(rec.edge)}
-                    </td>
-                    <td className="td text-sky-300">{signedPct(trueBoostValue)}</td>
-                    <td className="td"><RiskBadge level={rec.riskLevel} /></td>
-                    <td className="td"><StreakBadge level={rec.streakSuitability} /></td>
-                    <td className="td"><RecommendationBadge level={recommendationLabel} /></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {rows.map(({ quote, player, match, rec, trueBoostValue, recommendationLabel }) => {
+            const home = getTeam(match.homeTeam);
+            const away = getTeam(match.awayTeam);
+            return (
+              <div key={quote.id} className="space-y-2">
+                <p className="text-xs text-zinc-500">
+                  {quote.bookmaker} · {home.flag} {home.name} v {away.name} {away.flag} · {kickoff(match.kickoffTime)}
+                </p>
+                <BoostCard
+                  player={player}
+                  quote={quote}
+                  rec={rec}
+                  trueBoostValue={trueBoostValue}
+                  recommendationLabel={recommendationLabel}
+                />
+              </div>
+            );
+          })}
         </div>
       )}
 
