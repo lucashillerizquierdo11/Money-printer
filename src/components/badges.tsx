@@ -1,6 +1,12 @@
 /** Small colour-coded badges for risk, confidence, streak suitability and qualification pressure. */
 
-import type { DataConfidence, QualificationPressure, RiskLevel, StreakSuitability } from "@/types";
+import type {
+  DataConfidence,
+  QualificationPressure,
+  RecommendationLabel,
+  RiskLevel,
+  StreakSuitability,
+} from "@/types";
 import { PRESSURE_LABELS } from "@/lib/standings";
 
 function Badge({ label, className }: { label: string; className: string }) {
@@ -59,4 +65,22 @@ const PRESSURE_STYLES: Record<QualificationPressure, string> = {
 
 export function PressureBadge({ level }: { level: QualificationPressure }) {
   return <Badge label={PRESSURE_LABELS[level]} className={PRESSURE_STYLES[level]} />;
+}
+
+const RECOMMENDATION_LABELS: Record<RecommendationLabel, string> = {
+  strong_candidate: "Strong candidate",
+  consider: "Consider",
+  watch: "Watch",
+  avoid: "Avoid",
+};
+
+const RECOMMENDATION_STYLES: Record<RecommendationLabel, string> = {
+  strong_candidate: "bg-emerald-900/60 text-emerald-300 ring-1 ring-emerald-700/50",
+  consider: "bg-sky-900/60 text-sky-200 ring-1 ring-sky-700/50",
+  watch: "bg-amber-900/60 text-amber-200 ring-1 ring-amber-700/50",
+  avoid: "bg-rose-900/60 text-rose-200 ring-1 ring-rose-700/50",
+};
+
+export function RecommendationBadge({ level }: { level: RecommendationLabel }) {
+  return <Badge label={RECOMMENDATION_LABELS[level]} className={RECOMMENDATION_STYLES[level]} />;
 }

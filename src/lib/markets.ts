@@ -6,7 +6,7 @@
  * candidate. Player markets only ever appear when a boosted-odds quote exists.
  */
 
-import type { Market, MarketKey, WorldCupMatch } from "@/types";
+import type { Market, MarketKey, RecentMatchLine, TeamRecentMatchStats, WorldCupMatch } from "@/types";
 
 export const MARKETS: Record<MarketKey, Market> = {
   over_0_5_goals: {
@@ -185,4 +185,53 @@ export function realisedHitRate(
   if (completed.length === 0) return null;
   const hits = completed.filter(predicate).length;
   return hits / completed.length;
+}
+
+/** Per-line-item predicates for the team-total-based markets we can derive a last-5 hit rate for. */
+const HIT_RATE_PREDICATES: Partial<Record<MarketKey, (m: RecentMatchLine) => boolean>> = {
+  over_0_5_goals: (m) => m.goalsFor + m.goalsAgainst > 0.5,
+  over_1_5_goals: (m) => m.goalsFor + m.goalsAgainst > 1.5,
+  both_teams_combined_over_0_5: (m) => m.goalsFor + m.goalsAgainst > 0.5,
+  over_5_5_corners: (m) => m.totalCorners > 5.5,
+  over_6_5_corners: (m) => m.totalCorners > 6.5,
+  over_0_5_cards: (m) => m.totalCards > 0.5,
+  over_1_5_cards: (m) => m.totalCards > 1.5,
+  favorite_team_over_0_5: (m) => m.goalsFor > 0.5,
+};
+
+/** Per-match predicates for the team-total-based markets, against full match totals. */
+const TOURNAMENT_HIT_PREDICATES: Partial<Record<MarketKey, (m: WorldCupMatch) => boolean>> = {
+  over_0_5_goals: (m) => (m.totalGoals ?? 0) > 0.5,
+  over_1_5_goals: (m) => (m.totalGoals ?? 0) > 1.5,
+  both_teams_combined_over_0_5: (m) => (m.totalGoals ?? 0) > 0.5,
+  over_5_5_corners: (m) => (m.totalCorners ?? 0) > 5.5,
+  over_6_5_corners: (m) => (m.totalCorners ?? 0) > 6.5,
+  over_0_5_cards: (m) => (m.totalCards ?? 0) > 0.5,
+  over_1_5_cards: (m) => (m.totalCards ?? 0) > 1.5,
+};
+
+/**
+ * Realised tournament hit rate for a market across a set of completed
+ * matches. Returns null for markets that can't be derived from match totals
+ * (result/team-specific/player markets).
+ */
+export function tournamentHitRateForMarket(
+  matches: WorldCupMatch[],
+  marketKey: MarketKey,
+): number | null {
+  const predicate = TOURNAMENT_HIT_PREDICATES[marketKey];
+  if (!predicate) return null;
+  return realisedHitRate(matches, predicate);
+}
+
+/**
+ * Share of a team's last-5 matches in which a market would have hit. Returns
+ * null for markets that aren't team-total-based (result/player markets), since
+ * a last-5 hit rate can't be derived from summary stat lines for those.
+ */
+export function teamHitRate(stats: TeamRecentMatchStats, marketKey: MarketKey): number | null {
+  const predicate = HIT_RATE_PREDICATES[marketKey];
+  if (!predicate || stats.matches.length === 0) return null;
+  const hits = stats.matches.filter(predicate).length;
+  return hits / stats.matches.length;
 }

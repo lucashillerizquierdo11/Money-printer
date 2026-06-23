@@ -82,3 +82,40 @@ export function suggestedStreakLength(
 function pct(v: number): string {
   return `${(v * 100).toFixed(1)}%`;
 }
+
+/**
+ * Kelly-fraction stake size as a share of bankroll: f* = (bp - q) / b, where
+ * b = decimalOdds - 1, p = estimated probability, q = 1 - p. Clamped to
+ * [0, 1] — negative Kelly means the bet has no edge and should get 0 stake.
+ */
+export function kellyFraction(estimatedProbability: number, decimalOdds: number): number {
+  const b = decimalOdds - 1;
+  if (b <= 0) return 0;
+  const q = 1 - estimatedProbability;
+  const f = (b * estimatedProbability - q) / b;
+  return Math.max(0, Math.min(1, f));
+}
+
+/** Multiplier the bankroll needs to grow by to reach the target. */
+export function requiredMultiplier(startingBankroll: number, targetBankroll: number): number {
+  if (startingBankroll <= 0) return Infinity;
+  return targetBankroll / startingBankroll;
+}
+
+/**
+ * Greedily counts how many legs (from odds sorted best-value-first) are
+ * needed before the cumulative odds product reaches the required multiplier,
+ * capped at maxLegs. Returns maxLegs if the target isn't reached in time.
+ */
+export function legsNeededForTarget(
+  legOdds: number[],
+  required: number,
+  maxLegs: number,
+): number {
+  let product = 1;
+  for (let i = 0; i < Math.min(legOdds.length, maxLegs); i++) {
+    product *= legOdds[i];
+    if (product >= required) return i + 1;
+  }
+  return Math.min(legOdds.length, maxLegs);
+}

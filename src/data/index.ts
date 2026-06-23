@@ -153,4 +153,30 @@ export function getEligiblePlayers(matchId: string) {
   return PLAYERS.filter((p) => p.teamId === match.homeTeam || p.teamId === match.awayTeam);
 }
 
+/**
+ * Days of rest a team has had since its last completed World Cup match,
+ * relative to a given kickoff. Returns null if the team hasn't played yet
+ * in the tournament (no completed match to measure from).
+ */
+export function getRestDays(teamId: string, beforeKickoffIso: string): number | null {
+  const before = new Date(beforeKickoffIso).getTime();
+  const played = MATCHES.filter(
+    (m) =>
+      m.status === "complete" &&
+      (m.homeTeam === teamId || m.awayTeam === teamId) &&
+      new Date(m.kickoffTime).getTime() < before,
+  );
+  if (played.length === 0) return null;
+  const lastKickoff = played.reduce(
+    (latest, m) => Math.max(latest, new Date(m.kickoffTime).getTime()),
+    0,
+  );
+  return Math.round((before - lastKickoff) / (1000 * 60 * 60 * 24));
+}
+
+/** Every value candidate (team markets + boosted player props) across all upcoming matches. */
+export function getAllUpcomingRecommendations(): Recommendation[] {
+  return getUpcomingMatches().flatMap((m) => getAllRecommendationsForMatch(m.id));
+}
+
 export { computeAllStandings, computeGroupStandings } from "@/lib/standings";

@@ -56,16 +56,27 @@ export function generatePlayerOdds(
     const margin = isBoosted ? 1 + rand() * 0.02 - 0.01 : 1 + 0.05 + rand() * 0.06;
     const bookProb = clamp(fairGoalProb * margin, 0.03, 0.97);
     const goalOdds = round2(1 / bookProb);
+    // The regular (non-boosted) price the boost replaced, for comparison on /boosts.
+    const normalMargin = 1 + 0.05 + rand() * 0.06;
+    const normalProb = clamp(fairGoalProb * normalMargin, 0.03, 0.97);
+    const normalOdds = round2(1 / normalProb);
+    const bookmaker = BOOKMAKERS[Math.floor(rand() * BOOKMAKERS.length)];
+    const maxStake = isBoosted ? [10, 20, 25, 50][Math.floor(rand() * 4)] : undefined;
 
     odds.push({
       id: `${matchId}:player_over_0_5_goals:${player.id}`,
       matchId,
       playerId: player.id,
       marketKey: "player_over_0_5_goals",
-      bookmaker: BOOKMAKERS[Math.floor(rand() * BOOKMAKERS.length)],
+      bookmaker,
       odds: goalOdds,
       impliedProbability: round3(1 / goalOdds),
       isBoosted,
+      normalOdds: isBoosted ? Math.max(normalOdds, goalOdds) : undefined,
+      maxStake,
+      terms: isBoosted
+        ? `Boost applies to first qualifying bet only, max stake ${maxStake} kr. Returns above max stake paid at normal odds (${normalOdds.toFixed(2)}).`
+        : undefined,
       capturedAt: new Date().toISOString(),
     });
 

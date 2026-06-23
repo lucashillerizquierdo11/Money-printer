@@ -70,6 +70,7 @@ export function buildPlayerGoalRecommendation(
     streakSuitability,
     trapWarning,
     rationale,
+    isBoosted: true,
   };
 }
 

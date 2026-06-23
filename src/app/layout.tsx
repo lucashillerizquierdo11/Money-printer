@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Nav } from "@/components/Nav";
 import { DisclaimerBanner } from "@/components/Disclaimer";
+import { SettingsProvider } from "@/components/SettingsProvider";
 
 export const metadata: Metadata = {
   title: "World Cup Streak Value Finder",
@@ -17,9 +18,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <DisclaimerBanner />
-        <Nav />
-        <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+        <SettingsProvider>
+          <DisclaimerBanner />
+          <Nav />
+          <main className="mx-auto max-w-6xl px-4 py-6">{children}</main>
+        </SettingsProvider>
       </body>
     </html>
   );

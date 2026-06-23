@@ -2,15 +2,19 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   MATCHES,
+  buildScoringContext,
   computeGroupStandings,
   getMatch,
   getPlayerRecommendationsForMatch,
   getRecentStats,
   getRecommendationsForMatch,
+  getRestDays,
   getTeam,
   getTournamentStats,
 } from "@/data";
 import { buildBetBuilderSummary } from "@/lib/betBuilder";
+import { buildExplanation } from "@/lib/explain";
+import { motivationAdjustment } from "@/lib/scoring";
 import type {
   Recommendation,
   TeamRecentMatchStats,
@@ -18,8 +22,9 @@ import type {
   WorldCupMatch,
   WorldCupTeam,
 } from "@/types";
-import { realisedHitRate } from "@/lib/markets";
-import { ConfidenceBadge, PressureBadge, RiskBadge, StreakBadge } from "@/components/badges";
+import { realisedHitRate, teamHitRate, tournamentHitRateForMarket } from "@/lib/markets";
+import { ConfidenceBadge, PressureBadge, RecommendationBadge, RiskBadge, StreakBadge } from "@/components/badges";
+import { recommendationLabelOf } from "@/lib/value";
 import { DisclaimerFootnote } from "@/components/Disclaimer";
 import { kickoff, odds, pct, shortDate, signedPct, stageLabel } from "@/lib/format";
 
@@ -39,7 +44,7 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
   return (
     <div className="space-y-8">
       <div>
-        <Link href="/" className="text-sm text-zinc-400 hover:text-white">
+        <Link href="/dashboard" className="text-sm text-zinc-400 hover:text-white">
           ← Back to dashboard
         </Link>
         <h1 className="mt-2 text-2xl font-semibold text-white">
@@ -52,6 +57,8 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
         </p>
       </div>
 
+      <MatchOverview match={match} home={home} away={away} />
+
       <ValueCandidates recs={recs} />
 
       <PlayerProps recs={playerRecs} />
@@ -62,6 +69,10 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
 
       {match.groupLetter && <GroupContext match={match} />}
 
+      <MarketAnalysis match={match} home={home} away={away} recs={recs} />
+
+      <ExplanationPanel match={match} home={home} away={away} recs={recs} />
+
       <div className="grid gap-6 md:grid-cols-2">
         <RecentForm team={home} />
         <RecentForm team={away} />
@@ -70,6 +81,74 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
       <HitRates home={home} away={away} />
 
       <DisclaimerFootnote />
+    </div>
+  );
+}
+
+// --- Match overview ---------------------------------------------------------
+
+function MatchOverview({
+  match,
+  home,
+  away,
+}: {
+  match: WorldCupMatch;
+  home: WorldCupTeam;
+  away: WorldCupTeam;
+}) {
+  const ctx = buildScoringContext(match.id);
+  const adj = ctx ? motivationAdjustment(ctx) : null;
+  const homeRest = getRestDays(home.id, match.kickoffTime);
+  const awayRest = getRestDays(away.id, match.kickoffTime);
+
+  return (
+    <section className="card space-y-3">
+      <h2 className="text-lg font-semibold text-white">Match overview</h2>
+      <div className="grid gap-3 text-sm text-zinc-300 sm:grid-cols-2 lg:grid-cols-4">
+        <Overview label="Kickoff" value={kickoff(match.kickoffTime)} />
+        <Overview label="Stage" value={stageLabel(match.stage, match.groupLetter)} />
+        <Overview
+          label="Qualification situation"
+          value={
+            ctx?.homeStanding && ctx?.awayStanding
+              ? `${home.code}: ${PRESSURE_TEXT[ctx.homeStanding.qualificationPressure]} · ${away.code}: ${PRESSURE_TEXT[ctx.awayStanding.qualificationPressure]}`
+              : "Not applicable (knockout stage)"
+          }
+        />
+        <Overview
+          label="Rest days"
+          value={`${home.code}: ${homeRest ?? "first match"} · ${away.code}: ${awayRest ?? "first match"}`}
+        />
+        <Overview label="Venue" value={match.venue ?? "Not yet announced"} />
+        <Overview label="Weather" value="Not yet available — connect a weather feed." />
+      </div>
+      {adj && adj.notes.length > 0 && (
+        <div>
+          <p className="text-xs uppercase tracking-wide text-zinc-500">Motivation pressure</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm text-zinc-300">
+            {adj.notes.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </section>
+  );
+}
+
+const PRESSURE_TEXT: Record<string, string> = {
+  must_win: "must win",
+  likely_needs_points: "likely needs points",
+  already_qualified: "already qualified",
+  already_eliminated: "already eliminated",
+  in_contention: "in contention",
+};
+
+function Overview({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs uppercase tracking-wide text-zinc-500">{label}</p>
+      <p className="text-white">{value}</p>
     </div>
   );
 }
@@ -251,6 +330,120 @@ function BetBuilder({
   );
 }
 
+// --- Market analysis --------------------------------------------------------
+
+function MarketAnalysis({
+  match,
+  home,
+  away,
+  recs,
+}: {
+  match: WorldCupMatch;
+  home: WorldCupTeam;
+  away: WorldCupTeam;
+  recs: Recommendation[];
+}) {
+  if (recs.length === 0) return null;
+  const hr = getRecentStats(home.id);
+  const ar = getRecentStats(away.id);
+  const completed = MATCHES.filter(
+    (m) =>
+      m.status === "complete" &&
+      (m.homeTeam === home.id || m.awayTeam === home.id || m.homeTeam === away.id || m.awayTeam === away.id),
+  );
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-lg font-semibold text-white">Market analysis</h2>
+      <div className="overflow-x-auto rounded-xl border border-pitch-700">
+        <table className="data w-full min-w-[1200px]">
+          <thead className="bg-pitch-800">
+            <tr>
+              <th className="th">Market</th>
+              <th className="th">Hit rate {home.code} (last 5)</th>
+              <th className="th">Hit rate {away.code} (last 5)</th>
+              <th className="th">Tournament hit rate</th>
+              <th className="th">Combined est. prob.</th>
+              <th className="th">Odds</th>
+              <th className="th">Implied</th>
+              <th className="th">Edge</th>
+              <th className="th">Variance rating</th>
+              <th className="th">Streak fit</th>
+              <th className="th">Final recommendation</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recs.map((r) => {
+              const homeRate = teamHitRate(hr, r.marketKey);
+              const awayRate = teamHitRate(ar, r.marketKey);
+              const tournamentRate = tournamentHitRateForMarket(completed, r.marketKey);
+              return (
+                <tr key={r.marketKey + (r.selection ?? "")}>
+                  <td className="td whitespace-nowrap">{r.marketLabel}</td>
+                  <td className="td">{homeRate === null ? "—" : pct(homeRate)}</td>
+                  <td className="td">{awayRate === null ? "—" : pct(awayRate)}</td>
+                  <td className="td">{tournamentRate === null ? "—" : pct(tournamentRate)}</td>
+                  <td className="td font-medium text-white">{pct(r.estimatedProbability)}</td>
+                  <td className="td">{odds(r.odds)}</td>
+                  <td className="td text-zinc-400">{pct(r.impliedProbability)}</td>
+                  <td className={`td ${r.edge >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{signedPct(r.edge)}</td>
+                  <td className="td"><RiskBadge level={r.riskLevel} /></td>
+                  <td className="td"><StreakBadge level={r.streakSuitability} /></td>
+                  <td className="td">
+                    <RecommendationBadge
+                      level={recommendationLabelOf({
+                        estimatedProbability: r.estimatedProbability,
+                        edge: r.edge,
+                        dataConfidence: r.dataConfidence,
+                        valueScore: r.valueScore,
+                      })}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-zinc-500">
+        Stage context for this match: {stageLabel(match.stage, match.groupLetter)}.
+      </p>
+    </section>
+  );
+}
+
+// --- Explanation panel -------------------------------------------------------
+
+function ExplanationPanel({
+  match,
+  home,
+  away,
+  recs,
+}: {
+  match: WorldCupMatch;
+  home: WorldCupTeam;
+  away: WorldCupTeam;
+  recs: Recommendation[];
+}) {
+  if (recs.length === 0) return null;
+  const hr = getRecentStats(home.id);
+  const ar = getRecentStats(away.id);
+  const stagePhase = match.stage === "group" ? "group" : "knockout";
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-lg font-semibold text-white">Why these recommendations</h2>
+      <div className="space-y-3">
+        {recs.slice(0, 5).map((r) => (
+          <div key={r.marketKey + (r.selection ?? "")} className="card">
+            <p className="text-sm text-zinc-300">{buildExplanation(r, hr, ar, stagePhase)}</p>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 // --- Team comparison ------------------------------------------------------
 
 function TeamComparison({ home, away }: { home: WorldCupTeam; away: WorldCupTeam }) {
@@ -272,6 +465,11 @@ function TeamComparison({ home, away }: { home: WorldCupTeam; away: WorldCupTeam
     ["Avg cards for", num(hr.avgCardsFor), num(ar.avgCardsFor)],
     ["Avg cards against", num(hr.avgCardsAgainst), num(ar.avgCardsAgainst)],
     ["Total cards / match", num(hr.avgTotalCards), num(ar.avgTotalCards)],
+    ["Clean sheets (last 5)", String(hr.cleanSheets), String(ar.cleanSheets)],
+    ["Failed to score (last 5)", String(hr.failedToScore), String(ar.failedToScore)],
+    ["Avg shots / match", num(hr.avgShotsFor), num(ar.avgShotsFor)],
+    ["Avg shots on target / match", num(hr.avgShotsOnTarget), num(ar.avgShotsOnTarget)],
+    ["xG / match", "Not yet available", "Not yet available"],
     ["— Current World Cup —", "", ""],
     ...tournamentRows(ht, at),
   ];

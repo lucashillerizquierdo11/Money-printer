@@ -29,3 +29,8 @@ table.data tbody tr {
 table.data tbody tr:hover {
   @apply bg-pitch-700/40;
 }
+
+.select,
+.input {
+  @apply rounded border border-pitch-700 bg-pitch-900 px-2 py-1.5 text-sm text-white;
+}

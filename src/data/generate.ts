@@ -97,6 +97,10 @@ export function generateRecentStats(team: WorldCupTeam): TeamRecentMatchStats {
     const goalsAgainst = poisson(Math.max(0.3, defend), rand);
     const corners = 3 + Math.round(rand() * 6 + s * 3); // team corners 3..~11
     const cards = Math.round(rand() * 2 + (1 - s) * 1.5); // weaker sides foul more
+    const shotsFor = Math.round(6 + s * 10 + rand() * 4);
+    const shotsOnTarget = Math.round(shotsFor * (0.32 + rand() * 0.15));
+    const oppCorners = Math.max(2, corners - 2);
+    const oppCards = Math.max(0, cards);
     const result: "W" | "D" | "L" =
       goalsFor > goalsAgainst ? "W" : goalsFor < goalsAgainst ? "L" : "D";
 
@@ -107,6 +111,10 @@ export function generateRecentStats(team: WorldCupTeam): TeamRecentMatchStats {
       goalsAgainst,
       corners,
       cards,
+      shotsFor,
+      shotsOnTarget,
+      totalCorners: corners + oppCorners,
+      totalCards: cards + oppCards,
       result,
     });
   }
@@ -115,9 +123,9 @@ export function generateRecentStats(team: WorldCupTeam): TeamRecentMatchStats {
   const sum = (fn: (m: RecentMatchLine) => number) =>
     matches.reduce((acc, m) => acc + fn(m), 0);
 
-  // Opponent corners/cards approximated symmetrically for totals.
-  const oppCorners = (m: RecentMatchLine) => Math.max(2, m.corners - 2);
-  const oppCards = (m: RecentMatchLine) => Math.max(0, m.cards);
+  // Opponent corners/cards approximated symmetrically for averages.
+  const oppCornersOf = (m: RecentMatchLine) => Math.max(2, m.corners - 2);
+  const oppCardsOf = (m: RecentMatchLine) => Math.max(0, m.cards);
 
   return {
     teamId: team.id,
@@ -126,11 +134,15 @@ export function generateRecentStats(team: WorldCupTeam): TeamRecentMatchStats {
     avgGoalsAgainst: round1(sum((m) => m.goalsAgainst) / n),
     avgTotalGoals: round1(sum((m) => m.goalsFor + m.goalsAgainst) / n),
     avgCornersFor: round1(sum((m) => m.corners) / n),
-    avgCornersAgainst: round1(sum(oppCorners) / n),
-    avgTotalCorners: round1(sum((m) => m.corners + oppCorners(m)) / n),
+    avgCornersAgainst: round1(sum(oppCornersOf) / n),
+    avgTotalCorners: round1(sum((m) => m.totalCorners) / n),
     avgCardsFor: round1(sum((m) => m.cards) / n),
-    avgCardsAgainst: round1(sum(oppCards) / n),
-    avgTotalCards: round1(sum((m) => m.cards + oppCards(m)) / n),
+    avgCardsAgainst: round1(sum(oppCardsOf) / n),
+    avgTotalCards: round1(sum((m) => m.totalCards) / n),
+    avgShotsFor: round1(sum((m) => m.shotsFor) / n),
+    avgShotsOnTarget: round1(sum((m) => m.shotsOnTarget) / n),
+    cleanSheets: matches.filter((m) => m.goalsAgainst === 0).length,
+    failedToScore: matches.filter((m) => m.goalsFor === 0).length,
   };
 }
 

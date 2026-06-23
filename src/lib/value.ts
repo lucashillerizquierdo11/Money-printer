@@ -7,7 +7,7 @@
  * "safe" in isolation or "guaranteed".
  */
 
-import type { DataConfidence, RiskLevel, StreakSuitability } from "@/types";
+import type { DataConfidence, RecommendationLabel, RiskLevel, StreakSuitability } from "@/types";
 
 /** Core rule: a bet is only a candidate if true probability beats the book. */
 export function hasEdge(estimatedProbability: number, impliedProbability: number): boolean {
@@ -84,6 +84,26 @@ export function streakSuitabilityOf(args: {
   if (valueScore >= 65 && estimatedProbability >= 0.7) return "strong_candidate";
   if (valueScore >= 40) return "consider";
   return "avoid";
+}
+
+/**
+ * 4-tier general recommendation label for the Dashboard / Boost finder.
+ * Adds a "watch" tier between "avoid" and "consider" for candidates with
+ * positive edge that aren't yet strong enough to act on.
+ */
+export function recommendationLabelOf(args: {
+  estimatedProbability: number;
+  edge: number;
+  dataConfidence: DataConfidence;
+  valueScore: number;
+}): RecommendationLabel {
+  const { edge, dataConfidence, estimatedProbability, valueScore } = args;
+
+  if (edge <= 0) return "avoid";
+  if (dataConfidence === "low" && estimatedProbability < 0.75) return "watch";
+  if (valueScore >= 65 && estimatedProbability >= 0.7) return "strong_candidate";
+  if (valueScore >= 45) return "consider";
+  return "watch";
 }
 
 /**

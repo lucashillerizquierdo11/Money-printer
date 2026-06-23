@@ -110,6 +110,11 @@ export interface RecentMatchLine {
   goalsAgainst: number;
   corners: number;
   cards: number;
+  shotsFor: number;
+  shotsOnTarget: number;
+  /** Match-total corners/cards (own + approximated opponent), stored once at generation time. */
+  totalCorners: number;
+  totalCards: number;
   result: "W" | "D" | "L";
 }
 
@@ -129,6 +134,12 @@ export interface TeamRecentMatchStats {
   avgCardsFor: number;
   avgCardsAgainst: number;
   avgTotalCards: number;
+  avgShotsFor: number;
+  avgShotsOnTarget: number;
+  /** Count of the last 5 matches with goalsAgainst === 0. */
+  cleanSheets: number;
+  /** Count of the last 5 matches with goalsFor === 0. */
+  failedToScore: number;
 }
 
 /** A national team's performance in the current World Cup so far. */
@@ -225,6 +236,13 @@ export type DataConfidence = "high" | "medium" | "low";
 export type StreakSuitability = "strong_candidate" | "consider" | "avoid";
 
 /**
+ * 4-tier general recommendation label shown on the Dashboard/Boost finder.
+ * Distinct from `StreakSuitability` only in that it adds a middle "watch"
+ * tier for candidates worth tracking but not yet acting on.
+ */
+export type RecommendationLabel = "avoid" | "watch" | "consider" | "strong_candidate";
+
+/**
  * A model-estimated value candidate for a single match + market.
  * NOTE: this is research output, never a guarantee. UI must use language such
  * as "estimated hit probability" / "value score" / "strong candidate" and
@@ -257,6 +275,8 @@ export interface Recommendation {
   trapWarning?: string;
   /** Human-readable factors behind the estimate. */
   rationale: string[];
+  /** True only for markets priced from a bookmaker-boosted quote (player props). */
+  isBoosted?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -289,6 +309,12 @@ export interface PlayerPropOdds {
   odds: number;
   impliedProbability: number;
   isBoosted: boolean;
+  /** The bookmaker's regular (non-boosted) price for the same market, when `isBoosted`. */
+  normalOdds?: number;
+  /** Mock max stake the boost applies to, in the user's currency, when `isBoosted`. */
+  maxStake?: number;
+  /** Mock boost terms text, when `isBoosted`. */
+  terms?: string;
   capturedAt: string;
 }
 
@@ -396,6 +422,35 @@ export interface GroupStanding {
   /** 1-based position within the group. */
   position: number;
   qualificationPressure: QualificationPressure;
+}
+
+// ---------------------------------------------------------------------------
+// User-tunable scoring weights (Settings page)
+// ---------------------------------------------------------------------------
+
+/**
+ * User-adjustable weights for the value-score formula and app-wide thresholds.
+ * Recent/tournament form, market hit-rate, motivation and lineup-confidence
+ * weights are blended into a single "probability weight" because those
+ * factors are already combined upstream into `estimatedProbability` by the
+ * scoring engine — the slider scales how much that headline probability
+ * counts toward the value score, relative to edge/variance/confidence.
+ */
+export interface ScoringSettings {
+  recentFormWeight: number;
+  tournamentFormWeight: number;
+  oddsValueWeight: number;
+  marketHitRateWeight: number;
+  motivationWeight: number;
+  lineupConfidenceWeight: number;
+  dataConfidenceWeight: number;
+  streakSafetyWeight: number;
+  /** Maximum bonus points a boosted market can add to its value score. */
+  boostBonusCap: number;
+  /** Candidates below this edge (0..1) are filtered out app-wide. */
+  minEdgeThreshold: number;
+  /** Candidates below this estimated probability (0..1) are filtered out app-wide. */
+  minEstimatedProbabilityThreshold: number;
 }
 
 /** Pluggable real-world data feed (mocked in the MVP). See README. */

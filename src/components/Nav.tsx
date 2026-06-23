@@ -1,10 +1,12 @@
 import Link from "next/link";
 
 const LINKS = [
-  { href: "/", label: "Dashboard" },
-  { href: "/streak-builder", label: "Streak Builder" },
+  { href: "/dashboard", label: "Dashboard" },
+  { href: "/streak", label: "Streak Builder" },
+  { href: "/boosts", label: "Boost Finder" },
   { href: "/overview", label: "Tournament Overview" },
   { href: "/groups", label: "Groups" },
+  { href: "/settings", label: "Settings" },
 ];
 
 export function Nav() {
