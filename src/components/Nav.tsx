@@ -6,6 +6,7 @@ const LINKS = [
   { href: "/boosts", label: "Boost Finder" },
   { href: "/overview", label: "Tournament Overview" },
   { href: "/groups", label: "Groups" },
+  { href: "/sources", label: "Data Sources" },
   { href: "/settings", label: "Settings" },
 ];
 

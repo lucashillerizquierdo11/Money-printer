@@ -154,26 +154,42 @@ Qualification pressure comes from `src/lib/standings.ts`, which builds each
 group's table and classifies every team as *must win / likely needs points /
 already qualified / already eliminated / in contention*.
 
-## Connecting real data later
+## Connecting real data
 
-The MVP ships with **mock** data sources (`src/data/sources.ts`, all
-`connected: false`). To go live, replace the generators in `src/data/generate.ts`
-and `src/data/players.ts` with API calls that return the **same TypeScript
-shapes**. The feeds to wire up:
+Data is read through a **pluggable provider layer** (`src/data/providers/`).
+Each provider implements one `StatsProvider` interface and declares which
+data *kinds* it covers (`fixtures`, `results`, `match_stats`, `corners_cards`,
+`odds`, `player_odds`). The resolver picks the active provider and the
+built-in mock generators fill any kinds a real feed doesn't cover, so every
+page always has a complete, coherent dataset.
 
-1. **FIFA fixtures/results data** → fixtures, kickoff times, stages and final
-   scores. Populates `WorldCupMatch` (and drives `status`).
-2. **Official match stats** → per-match goals (and shots/possession) feeding
-   `TeamTournamentStats` and `WorldCupMatch.totalGoals`.
-3. **Licensed corners/cards data** → corner and card counts feeding
-   `WorldCupMatch.totalCorners` / `totalCards` and the corner/card markets.
-4. **Odds comparison APIs** → bookmaker prices for each supported market,
-   producing `OddsSnapshot` records (and `impliedProbability`).
-5. **Player-prop odds feeds** → per-player goal/shot prices with boost flags,
-   producing `PlayerPropOdds` records.
+### Built-in providers
 
-Because every interface is database-ready, you can also persist these shapes
-directly to SQL/NoSQL and swap the in-memory store for queries.
+- **`mock`** (`providers/mock.ts`) — deterministic, seeded generators covering
+  every kind. Always available, no key required. This is the fallback.
+- **`football-data`** (`providers/footballData.ts`) — live World Cup fixtures
+  and results from the [football-data.org](https://www.football-data.org) v4
+  API (`covers: ["fixtures", "results"]`). Corners/cards/odds/player props are
+  not in this feed, so those stay on mock.
+
+### Turning on live data
+
+1. Get a free key at <https://www.football-data.org/client/register>.
+2. Copy `.env.example` to `.env.local` and set `FOOTBALL_DATA_API_KEY` (and,
+   optionally, pin `DATA_PROVIDER=football-data`).
+3. Open **Data Sources** in the app (`/sources`) — it shows the active
+   provider, whether the live fetch succeeded, the live fixtures, and which
+   kinds are still served by mock. A failed live fetch falls back to mock
+   automatically and the failure reason is shown there.
+
+### Adding another API
+
+Implement `StatsProvider` (see `footballData.ts` as a worked example),
+returning the shared `@/types` shapes for whichever kinds you cover, then add
+your provider to the `PROVIDERS` array in `providers/index.ts`. Nothing else
+needs to change — selection, fallback and the `/sources` status page pick it
+up automatically. Because every interface is database-ready, you can also
+persist these shapes directly to SQL/NoSQL behind a provider.
 
 ## Tech stack
 
