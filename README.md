@@ -163,24 +163,46 @@ data *kinds* it covers (`fixtures`, `results`, `match_stats`, `corners_cards`,
 built-in mock generators fill any kinds a real feed doesn't cover, so every
 page always has a complete, coherent dataset.
 
+Each provider also has a **role**: a `graph` provider supplies the entity
+graph (teams + matches, usually with stats/odds) and is scored directly; an
+`odds-overlay` provider supplies only odds, matched onto a graph by team name.
+
 ### Built-in providers
 
 - **`mock`** (`providers/mock.ts`) — deterministic, seeded generators covering
   every kind. Always available, no key required. This is the fallback.
-- **`football-data`** (`providers/footballData.ts`) — live World Cup fixtures
-  and results from the [football-data.org](https://www.football-data.org) v4
-  API (`covers: ["fixtures", "results"]`). Corners/cards/odds/player props are
-  not in this feed, so those stay on mock.
+- **`api-football`** (`providers/apiFootball.ts`) — **recommended live source.**
+  Fixtures, results, per-match corners/cards and multi-bookmaker odds from
+  [API-Football](https://www.api-football.com) (`covers: fixtures, results,
+  match_stats, corners_cards, odds`). Being a `graph` provider with odds, it
+  drives the dashboard's edge/EV end-to-end.
+- **`odds-api`** (`providers/oddsApi.ts`) — match-result + goal-totals odds
+  from [The Odds API](https://the-odds-api.com), an `odds-overlay` matched by
+  team name onto the model's stats. Use it to price markets with real
+  bookmaker lines on top of the mock (or another graph's) stats.
+- **`football-data`** (`providers/footballData.ts`) — fixtures and results only
+  from [football-data.org](https://www.football-data.org) (no odds, so no
+  edges on their own).
 
 ### Turning on live data
 
-1. Get a free key at <https://www.football-data.org/client/register>.
-2. Copy `.env.example` to `.env.local` and set `FOOTBALL_DATA_API_KEY` (and,
-   optionally, pin `DATA_PROVIDER=football-data`).
-3. Open **Data Sources** in the app (`/sources`) — it shows the active
-   provider, whether the live fetch succeeded, the live fixtures, and which
-   kinds are still served by mock. A failed live fetch falls back to mock
-   automatically and the failure reason is shown there.
+1. Get a key for your chosen provider (see links above).
+2. Copy `.env.example` to `.env.local`, set the relevant key (e.g.
+   `API_FOOTBALL_KEY`) and optionally pin `DATA_PROVIDER`.
+3. The **dashboard** computes edge/EV against the active provider via
+   `/api/recommendations`, with a banner showing whether it's live or mock and
+   automatic mock fallback if a fetch fails. The **Data Sources** page
+   (`/sources`) shows the active provider, live-fetch status, live fixtures and
+   per-kind coverage.
+
+### How live data flows
+
+`/api/recommendations` → `loadDataset()` resolves + merges the active provider
+into one coherent dataset → `recommendationsFromDataset()` runs the same
+`buildRecommendations` scoring used by mock → the dashboard renders the
+resulting edge/EV. A graph provider that returns fixtures but no odds (e.g.
+football-data) yields no priced markets, so the route falls back to mock with
+an explanatory note rather than showing an empty board.
 
 ### Adding another API
 

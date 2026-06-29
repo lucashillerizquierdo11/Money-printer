@@ -33,6 +33,7 @@ export const mockProvider: StatsProvider = {
   meta: {
     id: "mock",
     name: "Built-in mock generators",
+    role: "graph",
     covers: ["fixtures", "results", "match_stats", "corners_cards", "odds", "player_odds"],
     isConfigured: true,
     description:

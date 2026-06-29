@@ -8,8 +8,11 @@
  */
 
 import type { DataConfidence, DataSource } from "@/types";
+import { apiFootballProvider } from "./apiFootball";
 import { footballDataProvider } from "./footballData";
+import { mergeDataset } from "./merge";
 import { buildMockDataset, mockProvider } from "./mock";
+import { oddsApiProvider } from "./oddsApi";
 import type { DataKind, ProviderDataset, ProviderMeta, StatsProvider } from "./types";
 
 export type { DataKind, ProviderDataset, ProviderMeta, StatsProvider } from "./types";
@@ -17,8 +20,15 @@ export type { DataKind, ProviderDataset, ProviderMeta, StatsProvider } from "./t
 /**
  * Ordered list of every known provider. Real providers come first so a
  * configured one wins over mock when `DATA_PROVIDER` isn't pinned explicitly.
+ * Add a new API here and the resolver, /sources page and fallback all pick
+ * it up automatically.
  */
-export const PROVIDERS: StatsProvider[] = [footballDataProvider, mockProvider];
+export const PROVIDERS: StatsProvider[] = [
+  apiFootballProvider,
+  oddsApiProvider,
+  footballDataProvider,
+  mockProvider,
+];
 
 export function listProviders(): ProviderMeta[] {
   return PROVIDERS.map((p) => p.meta);
@@ -36,7 +46,9 @@ export function resolveProvider(): StatsProvider {
 }
 
 export interface LoadedDataset {
-  /** Always-present, fully-coherent mock baseline that drives the analytical pages. */
+  /** The single coherent dataset to score/render against (live-merged or mock). */
+  dataset: ProviderDataset;
+  /** Always-present, fully-coherent mock baseline. */
   baseline: ProviderDataset;
   /** Metadata for the resolved active provider. */
   activeProvider: ProviderMeta;
@@ -91,14 +103,15 @@ export async function loadDataset(): Promise<LoadedDataset> {
   const sources = buildSourceStatuses(active);
 
   if (active.meta.id === "mock") {
-    return { baseline, activeProvider: active.meta, live: false, sources };
+    return { dataset: baseline, baseline, activeProvider: active.meta, live: false, sources };
   }
 
   try {
     const liveData = await active.load();
-    return { baseline, activeProvider: active.meta, live: true, liveData, sources };
+    const dataset = mergeDataset(baseline, liveData, active.meta);
+    return { dataset, baseline, activeProvider: active.meta, live: true, liveData, sources };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return { baseline, activeProvider: active.meta, live: false, error: message, sources };
+    return { dataset: baseline, baseline, activeProvider: active.meta, live: false, error: message, sources };
   }
 }

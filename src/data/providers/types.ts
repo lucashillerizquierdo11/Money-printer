@@ -31,10 +31,20 @@ export type DataKind =
   | "odds"
   | "player_odds";
 
+/**
+ * How a provider contributes to the merged dataset:
+ *  - "graph"        supplies the entity graph (teams + matches, usually with
+ *                   stats and/or odds). Used as the base to score against.
+ *  - "odds-overlay" supplies only odds, matched onto an existing graph by team
+ *                   name. Useful to drop sharper prices onto a stats source.
+ */
+export type ProviderRole = "graph" | "odds-overlay";
+
 export interface ProviderMeta {
   /** Stable id, also the value accepted by the `DATA_PROVIDER` env var. */
   id: string;
   name: string;
+  role: ProviderRole;
   /** Which data kinds this provider is able to supply. */
   covers: DataKind[];
   /**

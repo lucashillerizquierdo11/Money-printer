@@ -4,40 +4,110 @@
  * /dashboard — every upcoming World Cup match and its candidate markets,
  * filterable by date, stage, market type, probability/edge/risk thresholds,
  * boost-only and streak-suitability-only toggles.
+ *
+ * Data comes from /api/recommendations, which runs the scoring pipeline
+ * against the active provider (live API when configured, mock otherwise). On
+ * first paint and on any fetch failure we fall back to the synchronous mock
+ * selectors, so the page is always populated.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getAllRecommendationsForMatch, getBestRecommendation, getTeam, getUpcomingMatches } from "@/data";
+import { getAllRecommendationsForMatch, getTeam, getUpcomingMatches } from "@/data";
 import { MARKET_LIST } from "@/lib/markets";
 import { applySettingsToRecommendation, passesSettingsThresholds, type ScoredRecommendation } from "@/lib/settings";
 import { useSettings } from "@/components/SettingsProvider";
-import type { RiskLevel, WorldCupMatch } from "@/types";
+import type { Recommendation, RiskLevel } from "@/types";
 import { MatchCard } from "@/components/MatchCard";
 import { ConfidenceBadge, RecommendationBadge, RiskBadge, StreakBadge } from "@/components/badges";
 import { DisclaimerFootnote } from "@/components/Disclaimer";
 import { kickoff, odds, pct, shortDate, signedPct, stageLabel } from "@/lib/format";
 
+interface MatchRow {
+  id: string;
+  homeName: string;
+  homeFlag: string;
+  awayName: string;
+  awayFlag: string;
+  kickoffTime: string;
+  stage: string;
+  groupLetter?: string;
+  linkable: boolean;
+  recommendations: Recommendation[];
+}
+
+interface FeedPayload {
+  provider: { id: string; name: string; role: string };
+  live: boolean;
+  note?: string;
+  matches: MatchRow[];
+}
+
 interface Row {
-  match: WorldCupMatch;
+  match: MatchRow;
   rec: ScoredRecommendation;
 }
 
 const RISK_ORDER: Record<RiskLevel, number> = { low: 0, medium: 1, high: 2 };
 
+/** Build the mock feed client-side, for first paint and as a fetch fallback. */
+function buildMockFeed(): FeedPayload {
+  const matches: MatchRow[] = getUpcomingMatches().map((m) => {
+    const home = getTeam(m.homeTeam);
+    const away = getTeam(m.awayTeam);
+    return {
+      id: m.id,
+      homeName: home.name,
+      homeFlag: home.flag,
+      awayName: away.name,
+      awayFlag: away.flag,
+      kickoffTime: m.kickoffTime,
+      stage: m.stage,
+      groupLetter: m.groupLetter,
+      linkable: true,
+      recommendations: getAllRecommendationsForMatch(m.id),
+    };
+  });
+  return { provider: { id: "mock", name: "Built-in mock generators", role: "graph" }, live: false, matches };
+}
+
 export default function DashboardPage() {
   const { settings } = useSettings();
-  const upcoming = useMemo(() => getUpcomingMatches(), []);
+  const [feed, setFeed] = useState<FeedPayload>(() => buildMockFeed());
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/recommendations")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((data: FeedPayload) => {
+        if (!cancelled && data?.matches) setFeed(data);
+      })
+      .catch(() => {
+        /* keep the mock feed already in state */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const topMatches = useMemo(() => {
+    return feed.matches
+      .map((m) => ({
+        match: m,
+        top: [...m.recommendations].sort((a, b) => b.valueScore - a.valueScore)[0] ?? null,
+      }))
+      .slice(0, 8);
+  }, [feed]);
 
   const allRows = useMemo<Row[]>(
     () =>
-      upcoming.flatMap((match) =>
-        getAllRecommendationsForMatch(match.id).map((rec) => ({
+      feed.matches.flatMap((match) =>
+        match.recommendations.map((rec) => ({
           match,
           rec: applySettingsToRecommendation(rec, settings),
         })),
       ),
-    [upcoming, settings],
+    [feed, settings],
   );
 
   const [dateFilter, setDateFilter] = useState("all");
@@ -51,12 +121,12 @@ export default function DashboardPage() {
   const [hideNegativeEdge, setHideNegativeEdge] = useState(true);
 
   const dateOptions = useMemo(
-    () => [...new Set(upcoming.map((m) => shortDate(m.kickoffTime)))],
-    [upcoming],
+    () => [...new Set(feed.matches.map((m) => shortDate(m.kickoffTime)))],
+    [feed],
   );
   const stageOptions = useMemo(
-    () => [...new Set(upcoming.map((m) => stageLabel(m.stage, m.groupLetter)))],
-    [upcoming],
+    () => [...new Set(feed.matches.map((m) => stageLabel(m.stage, m.groupLetter)))],
+    [feed],
   );
 
   const rows = allRows.filter(({ match, rec }) => {
@@ -86,22 +156,26 @@ export default function DashboardPage() {
         </p>
       </section>
 
+      <DataSourceBanner feed={feed} />
+
       <section className="space-y-3">
         <h2 className="text-lg font-semibold text-white">Upcoming matches</h2>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {upcoming.slice(0, 8).map((match) => {
-            const home = getTeam(match.homeTeam);
-            const away = getTeam(match.awayTeam);
-            return (
-              <MatchCard
-                key={match.id}
-                match={match}
-                home={home}
-                away={away}
-                topRecommendation={getBestRecommendation(match.id)}
-              />
-            );
-          })}
+          {topMatches.map(({ match, top }) => (
+            <MatchCard
+              key={match.id}
+              id={match.id}
+              homeName={match.homeName}
+              homeFlag={match.homeFlag}
+              awayName={match.awayName}
+              awayFlag={match.awayFlag}
+              kickoffTime={match.kickoffTime}
+              stage={match.stage}
+              groupLetter={match.groupLetter}
+              topRecommendation={top}
+              linkable={match.linkable}
+            />
+          ))}
         </div>
       </section>
 
@@ -181,38 +255,61 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {rows.map(({ match, rec }) => {
-                const home = getTeam(match.homeTeam);
-                const away = getTeam(match.awayTeam);
-                return (
-                  <tr key={`${match.id}:${rec.marketKey}:${rec.selection ?? ""}`}>
-                    <td className="td whitespace-nowrap text-zinc-300">{kickoff(match.kickoffTime)}</td>
-                    <td className="td whitespace-nowrap text-zinc-300">{stageLabel(match.stage, match.groupLetter)}</td>
-                    <td className="td whitespace-nowrap">
+              {rows.map(({ match, rec }) => (
+                <tr key={`${match.id}:${rec.marketKey}:${rec.selection ?? ""}`}>
+                  <td className="td whitespace-nowrap text-zinc-300">{kickoff(match.kickoffTime)}</td>
+                  <td className="td whitespace-nowrap text-zinc-300">{stageLabel(match.stage, match.groupLetter)}</td>
+                  <td className="td whitespace-nowrap">
+                    {match.linkable ? (
                       <Link href={`/match/${match.id}`} className="text-emerald-300 hover:underline">
-                        {home.flag} {home.name} v {away.name} {away.flag}
+                        {match.homeFlag} {match.homeName} v {match.awayName} {match.awayFlag}
                       </Link>
-                    </td>
-                    <td className="td">{rec.marketLabel}{rec.isBoosted ? " 🚀" : ""}</td>
-                    <td className="td">{odds(rec.odds)}</td>
-                    <td className="td text-zinc-400">{pct(rec.impliedProbability, 1)}</td>
-                    <td className="td font-medium text-white">{pct(rec.estimatedProbability, 1)}</td>
-                    <td className={`td font-medium ${rec.edge >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
-                      {signedPct(rec.edge)}
-                    </td>
-                    <td className="td"><RiskBadge level={rec.riskLevel} /></td>
-                    <td className="td"><StreakBadge level={rec.streakSuitability} /></td>
-                    <td className="td"><ConfidenceBadge level={rec.dataConfidence} /></td>
-                    <td className="td"><RecommendationBadge level={rec.recommendationLabel} /></td>
-                  </tr>
-                );
-              })}
+                    ) : (
+                      <span>{match.homeFlag} {match.homeName} v {match.awayName} {match.awayFlag}</span>
+                    )}
+                  </td>
+                  <td className="td">{rec.marketLabel}{rec.isBoosted ? " 🚀" : ""}</td>
+                  <td className="td">{odds(rec.odds)}</td>
+                  <td className="td text-zinc-400">{pct(rec.impliedProbability, 1)}</td>
+                  <td className="td font-medium text-white">{pct(rec.estimatedProbability, 1)}</td>
+                  <td className={`td font-medium ${rec.edge >= 0 ? "text-emerald-300" : "text-rose-300"}`}>
+                    {signedPct(rec.edge)}
+                  </td>
+                  <td className="td"><RiskBadge level={rec.riskLevel} /></td>
+                  <td className="td"><StreakBadge level={rec.streakSuitability} /></td>
+                  <td className="td"><ConfidenceBadge level={rec.dataConfidence} /></td>
+                  <td className="td"><RecommendationBadge level={rec.recommendationLabel} /></td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
       </section>
 
       <DisclaimerFootnote />
+    </div>
+  );
+}
+
+function DataSourceBanner({ feed }: { feed: FeedPayload }) {
+  return (
+    <div
+      className={`rounded-xl border p-3 text-sm ${
+        feed.live
+          ? "border-emerald-700/60 bg-emerald-950/30 text-emerald-200"
+          : "border-pitch-700 bg-pitch-800/40 text-zinc-300"
+      }`}
+    >
+      <span className="font-medium">
+        {feed.live ? "Live data" : "Mock data"} · {feed.provider.name}
+      </span>
+      {feed.note && <span className="block text-xs text-zinc-400">{feed.note}</span>}
+      {!feed.live && feed.provider.id === "mock" && !feed.note && (
+        <span className="block text-xs text-zinc-500">
+          Edge/EV are computed on built-in mock data. Configure a provider on the{" "}
+          <Link href="/sources" className="text-emerald-300 hover:underline">Data Sources</Link> page to go live.
+        </span>
+      )}
     </div>
   );
 }

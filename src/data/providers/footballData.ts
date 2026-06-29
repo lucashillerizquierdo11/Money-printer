@@ -196,6 +196,7 @@ export const footballDataProvider: StatsProvider = {
   meta: {
     id: "football-data",
     name: "football-data.org (World Cup)",
+    role: "graph",
     covers: ["fixtures", "results"],
     isConfigured: apiKey() !== undefined,
     description:
