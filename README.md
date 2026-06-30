@@ -156,16 +156,41 @@ already qualified / already eliminated / in contention*.
 
 ## Connecting real data
 
+> **This is a betting-research tool, not financial advice.** It surfaces
+> *potential value candidates* — markets where the model's estimated
+> probability beats the bookmaker's implied probability — with the odds, edge,
+> risk and supporting data shown for each. It never claims a bet is guaranteed,
+> safe, a lock, or risk-free. Compounding a bankroll through a streak is
+> high-variance; one losing leg resets it to zero. Check your local laws and
+> gamble responsibly.
+
 Data is read through a **pluggable provider layer** (`src/data/providers/`).
 Each provider implements one `StatsProvider` interface and declares which
 data *kinds* it covers (`fixtures`, `results`, `match_stats`, `corners_cards`,
-`odds`, `player_odds`). The resolver picks the active provider and the
-built-in mock generators fill any kinds a real feed doesn't cover, so every
-page always has a complete, coherent dataset.
+`odds`, `player_odds`).
 
 Each provider also has a **role**: a `graph` provider supplies the entity
 graph (teams + matches, usually with stats/odds) and is scored directly; an
 `odds-overlay` provider supplies only odds, matched onto a graph by team name.
+`loadDataset()` composes a real graph provider with any odds-overlay providers
+into one coherent dataset, and reports exactly what is real vs missing.
+
+### Demo data vs live data
+
+The app is **live-only by default**. With no keys configured the dashboard
+shows *"No live provider configured"* — it never invents fake bets.
+
+- **Live data** (`live: true`): real fixtures and real bookmaker odds from a
+  configured provider. A candidate is only ever shown as real when it is backed
+  by real odds. When stats are thin (few completed fixtures), confidence is
+  capped **low** and the UI says so.
+- **Demo data** (`demo: true`): the built-in mock generators, enabled **only**
+  when `NEXT_PUBLIC_ALLOW_DEMO_DATA=true`. Every demo row is labeled "Demo
+  data" and is never presented as a real recommendation. Keep this `false` in
+  production.
+
+If a live provider fails, the app shows the **provider error** — it does not
+silently fall back to mock.
 
 ### Built-in providers
 
@@ -184,25 +209,54 @@ graph (teams + matches, usually with stats/odds) and is scored directly; an
   from [football-data.org](https://www.football-data.org) (no odds, so no
   edges on their own).
 
-### Turning on live data
+### Run locally
 
-1. Get a key for your chosen provider (see links above).
-2. Copy `.env.example` to `.env.local`, set the relevant key (e.g.
-   `API_FOOTBALL_KEY`) and optionally pin `DATA_PROVIDER`.
-3. The **dashboard** computes edge/EV against the active provider via
-   `/api/recommendations`, with a banner showing whether it's live or mock and
-   automatic mock fallback if a fetch fails. The **Data Sources** page
-   (`/sources`) shows the active provider, live-fetch status, live fixtures and
-   per-kind coverage.
+```bash
+npm install
+cp .env.example .env.local   # then edit .env.local
+npm run dev                  # http://localhost:3000
+```
+
+### Get API keys
+
+- **API-Football** (recommended): register at <https://www.api-football.com/>,
+  set `API_FOOTBALL_KEY` and `API_FOOTBALL_SEASON` (e.g. `2026`).
+- **The Odds API**: free key at <https://the-odds-api.com/>, set `ODDS_API_KEY`
+  (and `ODDS_API_SPORT`, default `soccer_fifa_world_cup`). Overlays real odds
+  onto whichever stats graph is active.
+- **football-data.org**: free key at
+  <https://www.football-data.org/client/register>, set `FOOTBALL_DATA_API_KEY`
+  (fixtures/results only — cannot produce edges without an odds source).
+
+`DATA_PROVIDER` optionally pins a provider; otherwise the best configured graph
+provider is used and any odds-overlay providers are merged on top.
+
+### Verify live data is connected
+
+1. Open **Data Sources** (`/sources`): the active provider shows **Live**, with
+   real-fixtures / real-odds / real-stats flags and fixture/odds/candidate
+   counts. Each provider shows whether its key is present (never the value).
+2. Open the **dashboard**: the banner reads *"Live"* with a **Live odds** badge,
+   and candidate rows show real bookmakers in the Source column.
+3. Hit `/api/recommendations` directly to see `live: true` and the `flags`.
+
+### What happens if odds are missing
+
+Edges need odds. If the active provider returns fixtures but no priced markets
+(e.g. football-data, or early before books open), the dashboard shows
+*"Live fixtures connected, but no priced markets available yet"* and no
+candidates — it does **not** fabricate them. Add an odds source (API-Football
+or The Odds API) to compute edges.
 
 ### How live data flows
 
-`/api/recommendations` → `loadDataset()` resolves + merges the active provider
-into one coherent dataset → `recommendationsFromDataset()` runs the same
-`buildRecommendations` scoring used by mock → the dashboard renders the
-resulting edge/EV. A graph provider that returns fixtures but no odds (e.g.
-football-data) yields no priced markets, so the route falls back to mock with
-an explanatory note rather than showing an empty board.
+`/api/recommendations` → `loadDataset()` composes the active provider(s) into
+one dataset and a rich status → `buildFeedMatches()` runs the same
+`buildRecommendations` scoring used by mock, then caps confidence and labels
+when stats are estimated/missing → the dashboard renders the feed with full
+provider/live/demo status. Each candidate carries its odds, implied
+probability, estimated probability, edge, risk, confidence, a plain-English
+explanation and a source breakdown.
 
 ### Adding another API
 

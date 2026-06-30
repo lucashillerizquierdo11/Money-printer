@@ -8,9 +8,8 @@
  * elsewhere without duplicating the bankroll-simulation logic.
  */
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getAllUpcomingRecommendations, getMatch, getTeam } from "@/data";
 import {
   ALL_IN_RISK_WARNING,
   buildStreakPlans,
@@ -21,6 +20,7 @@ import {
   type StreakPlan,
 } from "@/lib/streak";
 import type { Recommendation } from "@/types";
+import type { FeedMatch, FeedPayload, FeedRecommendation } from "@/lib/feed";
 import { ConfidenceBadge, RiskBadge, StreakBadge } from "@/components/badges";
 import { StreakSurvivalChart } from "@/components/charts/StreakSurvivalChart";
 import { kickoff, odds, pct, signedPct } from "@/lib/format";
@@ -34,8 +34,45 @@ const MODE_LABELS: Record<BettingMode, string> = {
   kelly: "Kelly fraction",
 };
 
+/** Map a feed recommendation back to a Recommendation for the streak math. */
+function toRecommendation(r: FeedRecommendation, matchId: string): Recommendation {
+  return {
+    matchId,
+    marketKey: r.marketKey as Recommendation["marketKey"],
+    marketLabel: r.marketLabel,
+    selection: r.selection,
+    estimatedProbability: r.estimatedProbability,
+    odds: r.odds,
+    bookmaker: r.bookmaker,
+    impliedProbability: r.impliedProbability,
+    edge: r.edge,
+    valueScore: r.valueScore,
+    riskLevel: r.riskLevel,
+    dataConfidence: r.dataConfidence,
+    streakSuitability: r.streakSuitability,
+    rationale: [r.explanation],
+    isBoosted: r.isBoosted,
+  };
+}
+
 export function StreakBuilder() {
-  const allRecs = useMemo(() => getAllUpcomingRecommendations(), []);
+  const [feed, setFeed] = useState<FeedPayload | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/recommendations")
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`Request failed (HTTP ${r.status})`))))
+      .then((data: FeedPayload) => {
+        if (!cancelled) setFeed(data);
+      })
+      .catch((err: Error) => {
+        if (!cancelled) setLoadError(err.message);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const [startingBankroll, setStartingBankroll] = useState(100);
   const [targetBankroll, setTargetBankroll] = useState(10000);
@@ -47,6 +84,31 @@ export function StreakBuilder() {
   const [minOdds, setMinOdds] = useState(1.01);
   const [maxOdds, setMaxOdds] = useState(3);
   const [includeBoosts, setIncludeBoosts] = useState(true);
+  const [includeLowConfidence, setIncludeLowConfidence] = useState(false);
+
+  const matchInfo = useMemo(
+    () => new Map<string, FeedMatch>((feed?.matches ?? []).map((m) => [m.id, m])),
+    [feed],
+  );
+
+  /**
+   * Only real-odds, positive-edge, non-avoid legs are eligible. Low-confidence
+   * legs are excluded unless the user opts in. This is the core honesty gate
+   * for streak building.
+   */
+  const allRecs = useMemo<Recommendation[]>(() => {
+    if (!feed) return [];
+    const out: Recommendation[] = [];
+    for (const m of feed.matches) {
+      for (const r of m.recommendations) {
+        if (!r.positiveEdge) continue;
+        if (r.recommendationLabel === "avoid") continue;
+        if (!includeLowConfidence && r.dataConfidence === "low") continue;
+        out.push(toRecommendation(r, m.id));
+      }
+    }
+    return out;
+  }, [feed, includeLowConfidence]);
 
   const filtered = allRecs
     .filter((r) => r.estimatedProbability >= minProb)
@@ -81,12 +143,46 @@ export function StreakBuilder() {
     [allRecs, startingBankroll, targetBankroll],
   );
 
+  if (loadError) {
+    return (
+      <div className="rounded-xl border border-rose-700/60 bg-rose-950/40 p-4 text-sm text-rose-200">
+        Couldn&apos;t load candidates: {loadError}
+      </div>
+    );
+  }
+  if (!feed) {
+    return <div className="card animate-pulse text-sm text-zinc-400">Loading candidate legs…</div>;
+  }
+  if (!feed.configured && !feed.demo) {
+    return (
+      <div className="rounded-xl border border-pitch-700 bg-pitch-800/40 p-5 text-sm text-zinc-400">
+        No live provider configured, so there are no real candidate legs to build a streak from. Add API
+        keys in <code>.env.local</code> (see the{" "}
+        <Link href="/sources" className="text-emerald-300 hover:underline">Data Sources</Link> page), or
+        enable demo mode with <code>NEXT_PUBLIC_ALLOW_DEMO_DATA=true</code>.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="rounded-xl border border-rose-700/60 bg-rose-950/40 p-4 text-sm font-medium text-rose-200">
-        ⚠️ This tool estimates probabilities. It cannot guarantee results. All-in
-        staking can lose the full bankroll from one failed bet.
+        ⚠️ This tool estimates probabilities. It cannot guarantee results. A high
+        estimated hit probability is not a guaranteed outcome. All-in staking
+        compounds the risk — one losing leg resets the entire streak to zero.
       </div>
+
+      {feed.demo && (
+        <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 p-3 text-sm text-amber-200">
+          Demo data — these legs are illustrative mock candidates, not real bets.
+        </div>
+      )}
+      {feed.live && !feed.flags.statsReal && (
+        <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 p-3 text-sm text-amber-200">
+          Live odds are connected but stats are estimated, so most legs are low-confidence. Enable
+          &ldquo;include low-confidence&rdquo; below to see them.
+        </div>
+      )}
 
       <section className="card grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         <NumberField label="Starting bankroll (kr)" value={startingBankroll} min={1} step={10} onChange={setStartingBankroll} />
@@ -115,6 +211,7 @@ export function StreakBuilder() {
         <NumberField label="Minimum odds" value={minOdds} min={1.01} max={10} step={0.01} onChange={setMinOdds} />
         <NumberField label="Maximum odds" value={maxOdds} min={1.01} max={20} step={0.1} onChange={setMaxOdds} />
         <Toggle label="Include boosts" checked={includeBoosts} onChange={setIncludeBoosts} />
+        <Toggle label="Include low-confidence candidates" checked={includeLowConfidence} onChange={setIncludeLowConfidence} />
       </section>
 
       {mode === "all_in" && (
@@ -198,16 +295,21 @@ export function StreakBuilder() {
               </thead>
               <tbody>
                 {suggestedLegs.map((r) => {
-                  const match = getMatch(r.matchId)!;
-                  const home = getTeam(match.homeTeam);
-                  const away = getTeam(match.awayTeam);
+                  const info = matchInfo.get(r.matchId);
+                  const label = info
+                    ? `${info.homeFlag} ${info.homeName} v ${info.awayName} ${info.awayFlag}`
+                    : r.matchId;
                   return (
                     <tr key={`${r.matchId}:${r.marketKey}:${r.selection ?? ""}`}>
                       <td className="td whitespace-nowrap">
-                        <Link href={`/match/${match.id}`} className="text-emerald-300 hover:underline">
-                          {home.flag} {home.name} v {away.name} {away.flag}
-                        </Link>
-                        <div className="text-xs text-zinc-500">{kickoff(match.kickoffTime)}</div>
+                        {info?.linkable ? (
+                          <Link href={`/match/${r.matchId}`} className="text-emerald-300 hover:underline">
+                            {label}
+                          </Link>
+                        ) : (
+                          <span>{label}</span>
+                        )}
+                        {info && <div className="text-xs text-zinc-500">{kickoff(info.kickoffTime)}</div>}
                       </td>
                       <td className="td">{r.marketLabel}{r.isBoosted ? " 🚀" : ""}</td>
                       <td className="td font-medium text-white">{pct(r.estimatedProbability, 1)}</td>

@@ -17,7 +17,7 @@ import type {
   WorldCupMatch,
   WorldCupTeam,
 } from "@/types";
-import type { ProviderDataset, ProviderMeta } from "./types";
+import type { ProviderDataset } from "./types";
 
 function round1(v: number): number {
   return Math.round(v * 10) / 10;
@@ -134,7 +134,7 @@ export function deriveTeamStats(
 }
 
 /** Use a live entity graph as the base, deriving any stats it didn't supply. */
-function mergeGraph(live: ProviderDataset): ProviderDataset {
+export function buildGraphDataset(live: ProviderDataset): ProviderDataset {
   const teams = live.teams ?? [];
   const matches = live.matches ?? [];
   const needsStats = !live.recentStats || !live.tournamentStats;
@@ -151,11 +151,13 @@ function mergeGraph(live: ProviderDataset): ProviderDataset {
 }
 
 /**
- * Overlay an odds-only provider onto the mock baseline graph, matching the
- * overlay's odds to baseline matches by team name. The overlay must also carry
- * minimal `matches` + `teams` so we can recover each odds row's team names.
+ * Overlay an odds-only provider's prices onto a base entity graph (the mock
+ * baseline, or a real graph from another provider), matching the overlay's
+ * odds to base matches by normalized team name. The overlay must carry minimal
+ * `matches` + `teams` so we can recover each odds row's team names. Returns a
+ * new dataset; the base's stats/fixtures are untouched.
  */
-function mergeOddsOverlay(baseline: ProviderDataset, live: ProviderDataset): ProviderDataset {
+export function overlayOdds(base: ProviderDataset, live: ProviderDataset): ProviderDataset {
   const overlayTeamName = new Map((live.teams ?? []).map((t) => [t.id, t.name]));
   const overlayMatch = new Map((live.matches ?? []).map((m) => [m.id, m]));
 
@@ -172,38 +174,23 @@ function mergeOddsOverlay(baseline: ProviderDataset, live: ProviderDataset): Pro
     oddsByKey.set(key, list);
   }
 
-  const baseTeamName = new Map((baseline.teams ?? []).map((t) => [t.id, t.name]));
+  const baseTeamName = new Map((base.teams ?? []).map((t) => [t.id, t.name]));
   const mergedOdds: OddsSnapshot[] = [];
-  for (const m of baseline.matches ?? []) {
+  for (const m of base.matches ?? []) {
     if (m.status !== "scheduled") continue;
     const homeName = baseTeamName.get(m.homeTeam) ?? m.homeTeam;
     const awayName = baseTeamName.get(m.awayTeam) ?? m.awayTeam;
     const overlay = oddsByKey.get(matchKey(homeName, awayName)) ?? [];
     const overlaidKeys = new Set(overlay.map((o) => `${o.marketKey}:${o.selection ?? ""}`));
-    // Re-point overlay odds at the baseline match id.
+    // Re-point overlay odds at the base match id.
     for (const o of overlay) {
       mergedOdds.push({ ...o, matchId: m.id, id: `${m.id}:${o.marketKey}:overlay` });
     }
-    // Keep baseline odds for markets the overlay didn't cover.
-    for (const o of (baseline.odds ?? []).filter((b) => b.matchId === m.id)) {
+    // Keep base odds for markets the overlay didn't cover.
+    for (const o of (base.odds ?? []).filter((b) => b.matchId === m.id)) {
       if (!overlaidKeys.has(`${o.marketKey}:${o.selection ?? ""}`)) mergedOdds.push(o);
     }
   }
 
-  return { ...baseline, odds: mergedOdds };
-}
-
-/**
- * Produce the single dataset the app scores against, given the mock baseline,
- * the active provider's live slices, and that provider's metadata.
- */
-export function mergeDataset(
-  baseline: ProviderDataset,
-  live: ProviderDataset,
-  meta: ProviderMeta,
-): ProviderDataset {
-  if (meta.role === "odds-overlay") return mergeOddsOverlay(baseline, live);
-  if ((live.teams?.length ?? 0) > 0 && (live.matches?.length ?? 0) > 0) return mergeGraph(live);
-  // Graph provider returned nothing usable — fall back to baseline.
-  return baseline;
+  return { ...base, odds: mergedOdds };
 }

@@ -13,14 +13,44 @@ import {
   getTeam,
   getUpcomingMatches,
 } from "@/data";
+import Link from "next/link";
 import { buildPlayerGoalRecommendation } from "@/lib/playerProps";
 import { BoostCard } from "@/components/BoostCard";
 import { DisclaimerFootnote } from "@/components/Disclaimer";
+import { demoAllowed } from "@/data/providers";
 import { recommendationLabelOf } from "@/lib/value";
 import { kickoff } from "@/lib/format";
 import type { PlayerPropOdds } from "@/types";
 
+// Read demo gating at request time, not build time.
+export const dynamic = "force-dynamic";
+
 export default function BoostsPage() {
+  // None of the configured live providers supply player-prop / boost odds, so
+  // boosts are only shown in demo mode (clearly labeled), never as real bets.
+  if (!demoAllowed()) {
+    return (
+      <div className="space-y-6">
+        <section>
+          <h1 className="text-2xl font-semibold text-white">Boost Finder</h1>
+          <p className="mt-1 text-sm text-zinc-400">
+            Compares bookmaker odds-boosts against the model&apos;s estimated true probability.
+          </p>
+        </section>
+        <div className="rounded-xl border border-pitch-700 bg-pitch-800/40 p-5 text-sm text-zinc-400">
+          <p className="font-medium text-white">No live boost data</p>
+          <p className="mt-1">
+            No configured provider supplies player-prop or boosted-odds quotes yet, so there are no real
+            boosts to evaluate. See the{" "}
+            <Link href="/sources" className="text-emerald-300 hover:underline">Data Sources</Link> page, or
+            set <code>NEXT_PUBLIC_ALLOW_DEMO_DATA=true</code> to preview this page with demo data.
+          </p>
+        </div>
+        <DisclaimerFootnote />
+      </div>
+    );
+  }
+
   const upcomingIds = new Set(getUpcomingMatches().map((m) => m.id));
   const boosted = PLAYER_ODDS.filter(
     (q): q is PlayerPropOdds & { normalOdds: number } =>
@@ -50,6 +80,9 @@ export default function BoostsPage() {
 
   return (
     <div className="space-y-6">
+      <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 p-3 text-sm text-amber-200">
+        Demo data — illustrative mock boosts, not real bookmaker offers or recommendations.
+      </div>
       <section>
         <h1 className="text-2xl font-semibold text-white">Boost Finder</h1>
         <p className="mt-1 text-sm text-zinc-400">

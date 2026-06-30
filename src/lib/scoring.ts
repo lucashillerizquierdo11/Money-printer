@@ -378,6 +378,7 @@ export function buildRecommendation(
     selection: quote.selection,
     estimatedProbability: round3(estimate.probability),
     odds: quote.odds,
+    bookmaker: quote.bookmaker,
     impliedProbability: quote.impliedProbability,
     edge: round3(edge),
     valueScore,

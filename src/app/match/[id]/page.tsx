@@ -23,7 +23,7 @@ import type {
   WorldCupTeam,
 } from "@/types";
 import { realisedHitRate, teamHitRate, tournamentHitRateForMarket } from "@/lib/markets";
-import { PressureBadge, RecommendationBadge, RiskBadge, StreakBadge } from "@/components/badges";
+import { PressureBadge, RecommendationBadge, RiskBadge, StreakBadge, ConfidenceBadge } from "@/components/badges";
 import { recommendationLabelOf } from "@/lib/value";
 import { DisclaimerFootnote } from "@/components/Disclaimer";
 import { RecommendationCard } from "@/components/RecommendationCard";
@@ -31,15 +31,160 @@ import { MarketEvaluationTable } from "@/components/MarketEvaluationTable";
 import { CardsTrendChart, CornersTrendChart, GoalsTrendChart } from "@/components/charts/TrendCharts";
 import { MarketHitRateChart } from "@/components/charts/MarketHitRateChart";
 import { kickoff, odds, pct, shortDate, signedPct, stageLabel } from "@/lib/format";
+import { loadDataset, type DatasetStatus, type ProviderDataset } from "@/data/providers";
+import { buildFeedMatches, datasetHasMarketData, type DatasetQuality } from "@/lib/datasetScoring";
+import type { FeedMatch } from "@/lib/feed";
 
 export function generateStaticParams() {
   return MATCHES.map((m) => ({ id: m.id }));
 }
 
-export default function MatchDetailPage({ params }: { params: { id: string } }) {
-  const match = getMatch(params.id);
-  if (!match) notFound();
+// Allow live fixture ids (not in the mock set) to render on demand.
+export const dynamicParams = true;
+export const dynamic = "force-dynamic";
 
+export default async function MatchDetailPage({ params }: { params: { id: string } }) {
+  const { dataset, status } = await loadDataset();
+  const liveMatch = (dataset.matches ?? []).find((m) => m.id === params.id);
+  const mockMatch = getMatch(params.id);
+
+  if (status.live && liveMatch) {
+    return <LiveMatchDetail match={liveMatch} dataset={dataset} status={status} />;
+  }
+  if (!status.live && mockMatch) {
+    return <MockMatchDetail match={mockMatch} demo={status.demo} />;
+  }
+  notFound();
+}
+
+// --- Live match detail ------------------------------------------------------
+
+function LiveMatchDetail({
+  match,
+  dataset,
+  status,
+}: {
+  match: WorldCupMatch;
+  dataset: ProviderDataset;
+  status: DatasetStatus;
+}) {
+  const teamsById = new Map((dataset.teams ?? []).map((t) => [t.id, t]));
+  const home = teamsById.get(match.homeTeam);
+  const away = teamsById.get(match.awayTeam);
+  const { corners, cards } = datasetHasMarketData(dataset);
+  const quality: DatasetQuality = {
+    demo: false,
+    statsReal: status.statsReal,
+    oddsReal: status.oddsReal,
+    hasCornersData: corners,
+    hasCardsData: cards,
+    fixturesProvider: status.provider.id,
+  };
+  const feedMatch: FeedMatch | undefined = buildFeedMatches(dataset, quality).find((m) => m.id === match.id);
+  const recs = feedMatch?.recommendations ?? [];
+  const homeRecent = dataset.recentStats?.[match.homeTeam];
+  const awayRecent = dataset.recentStats?.[match.awayTeam];
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <Link href="/dashboard" className="text-sm text-zinc-400 hover:text-white">← Back to dashboard</Link>
+        <h1 className="mt-2 text-2xl font-semibold text-white">
+          {home?.flag} {home?.name ?? match.homeTeam} <span className="text-zinc-500">v</span>{" "}
+          {away?.name ?? match.awayTeam} {away?.flag}
+        </h1>
+        <p className="mt-1 text-sm text-zinc-400">
+          {stageLabel(match.stage, match.groupLetter)} · {kickoff(match.kickoffTime)}
+          {match.venue ? ` · ${match.venue}` : ""}
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-emerald-700/60 bg-emerald-950/30 p-3 text-sm text-emerald-200">
+        Live data via {status.provider.name}.
+        {!status.statsReal && " Stats are estimated (few/no completed fixtures yet), so confidence is capped low."}
+      </div>
+      {status.warnings.map((w, i) => (
+        <p key={i} className="text-xs text-amber-300">⚠️ {w}</p>
+      ))}
+
+      <section className="space-y-3">
+        <h2 className="text-lg font-semibold text-white">Potential value candidates</h2>
+        {recs.length === 0 ? (
+          <p className="text-sm text-zinc-400">
+            No priced markets the model can score for this fixture yet.
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-xl border border-pitch-700">
+            <table className="data w-full min-w-[900px]">
+              <thead className="bg-pitch-800">
+                <tr>
+                  <th className="th">Market</th>
+                  <th className="th">Bookmaker</th>
+                  <th className="th">Odds</th>
+                  <th className="th">Implied</th>
+                  <th className="th">Est. prob.</th>
+                  <th className="th">Edge</th>
+                  <th className="th">Risk</th>
+                  <th className="th">Confidence</th>
+                  <th className="th">Verdict</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recs.map((r) => (
+                  <tr key={`${r.marketKey}:${r.selection ?? ""}`} title={r.explanation}>
+                    <td className="td">{r.marketLabel}</td>
+                    <td className="td text-zinc-400">{r.bookmaker ?? "—"}</td>
+                    <td className="td">{odds(r.odds)}</td>
+                    <td className="td text-zinc-400">{pct(r.impliedProbability, 1)}</td>
+                    <td className="td font-medium text-white">{pct(r.estimatedProbability, 1)}</td>
+                    <td className={`td ${r.edge >= 0 ? "text-emerald-300" : "text-rose-300"}`}>{signedPct(r.edge)}</td>
+                    <td className="td"><RiskBadge level={r.riskLevel} /></td>
+                    <td className="td"><ConfidenceBadge level={r.dataConfidence} /></td>
+                    <td className="td"><RecommendationBadge level={r.recommendationLabel} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {recs.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-white">Why these candidates</h2>
+          <div className="space-y-3">
+            {recs.slice(0, 6).map((r) => (
+              <div key={`${r.marketKey}:${r.selection ?? ""}`} className="card">
+                <p className="text-sm font-medium text-white">{r.marketLabel}</p>
+                <p className="mt-1 text-sm text-zinc-300">{r.explanation}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {(homeRecent?.matches.length || awayRecent?.matches.length) && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-white">Recent form trends</h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            {homeRecent && homeRecent.matches.length > 0 && (
+              <GoalsTrendChart matches={homeRecent.matches} teamLabel={home?.name ?? "Home"} />
+            )}
+            {awayRecent && awayRecent.matches.length > 0 && (
+              <GoalsTrendChart matches={awayRecent.matches} teamLabel={away?.name ?? "Away"} />
+            )}
+          </div>
+        </section>
+      )}
+
+      <DisclaimerFootnote />
+    </div>
+  );
+}
+
+// --- Mock / demo match detail ----------------------------------------------
+
+function MockMatchDetail({ match, demo }: { match: WorldCupMatch; demo: boolean }) {
   const home = getTeam(match.homeTeam);
   const away = getTeam(match.awayTeam);
   const recs = getRecommendationsForMatch(match.id);
@@ -59,6 +204,12 @@ export default function MatchDetailPage({ params }: { params: { id: string } }) 
           {stageLabel(match.stage, match.groupLetter)} · {kickoff(match.kickoffTime)}
           {match.venue ? ` · ${match.venue}` : ""}
         </p>
+      </div>
+
+      <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 p-3 text-sm text-amber-200">
+        {demo
+          ? "Demo data — illustrative mock numbers, not real betting recommendations."
+          : "No live provider is configured, so this page shows built-in demo data. Add API keys to see real fixtures and odds."}
       </div>
 
       <MatchOverview match={match} home={home} away={away} />

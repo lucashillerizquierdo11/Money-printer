@@ -28,6 +28,11 @@ export default function OverviewPage() {
         </p>
       </section>
 
+      <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 p-3 text-sm text-amber-200">
+        This tournament context uses built-in sample data and is illustrative. Connect a results provider
+        (see <Link href="/sources" className="underline">Data Sources</Link>) for live figures.
+      </div>
+
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat label="0–0 matches" value={String(nilNil)} hint={`${pct(nilNil / Math.max(1, n))} of games`} />
         <Stat label="Over 0.5 goals" value={pct(over05goals)} hint="at least 1 goal" />

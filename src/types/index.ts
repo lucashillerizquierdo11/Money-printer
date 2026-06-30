@@ -258,6 +258,8 @@ export interface Recommendation {
   estimatedProbability: number;
   /** Decimal odds used. */
   odds: number;
+  /** Bookmaker behind the quoted odds, when known. */
+  bookmaker?: string;
   /** Bookmaker implied probability, 0..1. */
   impliedProbability: number;
   /** estimatedProbability - impliedProbability (market edge). */

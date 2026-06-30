@@ -62,6 +62,7 @@ export function buildPlayerGoalRecommendation(
     selection: player.id,
     estimatedProbability: round3(probability),
     odds: quote.odds,
+    bookmaker: quote.bookmaker,
     impliedProbability: quote.impliedProbability,
     edge: round3(edge),
     valueScore,

@@ -1,8 +1,17 @@
 import Link from "next/link";
-import type { Recommendation } from "@/types";
+import type { RiskLevel, StreakSuitability } from "@/types";
 import { RiskBadge, StreakBadge } from "@/components/badges";
 import { EdgeBadge } from "@/components/scoreBadges";
 import { kickoff, stageLabel } from "@/lib/format";
+
+/** Minimal shape the card needs — satisfied by both Recommendation and FeedRecommendation. */
+export interface TopRecommendation {
+  marketLabel: string;
+  edge: number;
+  riskLevel: RiskLevel;
+  streakSuitability: StreakSuitability;
+  isBoosted?: boolean;
+}
 
 /**
  * Compact match summary card — teams, kickoff, stage, top recommended market
@@ -19,7 +28,7 @@ export interface MatchCardProps {
   kickoffTime: string;
   stage: string;
   groupLetter?: string;
-  topRecommendation: Recommendation | null;
+  topRecommendation: TopRecommendation | null;
   linkable?: boolean;
 }
 

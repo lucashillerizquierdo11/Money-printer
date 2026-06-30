@@ -68,9 +68,9 @@ export function PressureBadge({ level }: { level: QualificationPressure }) {
 }
 
 const RECOMMENDATION_LABELS: Record<RecommendationLabel, string> = {
-  strong_candidate: "Strong candidate",
-  consider: "Consider",
-  watch: "Watch",
+  strong_candidate: "Potential value candidate",
+  consider: "Positive-edge candidate",
+  watch: "Needs review",
   avoid: "Avoid",
 };
 

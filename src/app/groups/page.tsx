@@ -22,6 +22,11 @@ export default function GroupsPage() {
         </p>
       </section>
 
+      <div className="rounded-xl border border-amber-700/60 bg-amber-950/30 p-3 text-sm text-amber-200">
+        These standings use built-in sample data and are illustrative. Connect a results provider
+        (see <Link href="/sources" className="underline">Data Sources</Link>) for live standings.
+      </div>
+
       <div className="grid gap-6 lg:grid-cols-2">
         {GROUPS.map((group) => (
           <GroupCard key={group.letter} letter={group.letter} />
